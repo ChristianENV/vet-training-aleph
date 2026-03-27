@@ -14,6 +14,7 @@ You must respond with a single JSON object only (no markdown, no prose outside J
 - readinessLevel must be one of: FOUNDATION, DEVELOPING, PROFICIENT, WORK_READY.
 - strengths, weaknesses, recommendations: short, actionable strings (arrays of strings).
 - summary: 2–4 sentences suitable for a learner dashboard.
+- Use these exact top-level keys: overallScore, fluencyScore, technicalAccuracyScore, clientCommunicationScore, professionalismScore, confidenceScore, readinessLevel, strengths, weaknesses, recommendations, summary.
 
 Be fair, constructive, and specific. Reference patterns from the learner responses when possible.`;
 
