@@ -1,7 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
+// Vet English training platform — modular monolith MVP.
+// https://pris.ly/d/prisma-schema
 
 generator client {
   provider = "prisma-client"
@@ -10,4 +8,254 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+// --- Auth & directory ---
+
+enum UserRole {
+  /// Full platform control (customer org owner / top operator).
+  SUPER_ADMIN
+  /// Day-to-day user and content administration; cannot override protected-system rules.
+  ADMIN
+  /// Learner: guided sessions and own progress.
+  USER
+  /// Product / program owner: metrics, templates visibility, cross-user read where granted.
+  PRODUCT_OWNER
+  /// Internal technical “god mode”; seeded, protected; same capability tier as SUPER_ADMIN for RBAC.
+  DEVELOPER
+}
+
+// --- Sessions ---
+
+enum SessionType {
+  GUIDED_DIALOGUE
+  ROLE_PLAY
+  VOCABULARY_DRILL
+  CASE_REVIEW
+}
+
+enum SessionStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+  ARCHIVED
+}
+
+enum InputMode {
+  TEXT
+  VOICE
+  MIXED
+}
+
+// --- Progress ---
+
+enum ReadinessLevel {
+  FOUNDATION
+  DEVELOPING
+  PROFICIENT
+  WORK_READY
+}
+
+// --- Analysis ---
+
+enum AnalysisStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id                 String    @id @default(cuid())
+  email              String    @unique
+  emailVerified      DateTime?
+  name               String?
+  image              String?
+  passwordHash       String
+  role               UserRole  @default(USER)
+  /// When false, sign-in and API acting-as-user should reject (except recovery flows).
+  isActive           Boolean   @default(true)
+  lastLoginAt        DateTime?
+  /// Bootstrap / internal accounts; excluded from standard listings; immutable by normal admin flows.
+  isProtectedAccount Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  profile                UserProfile?
+  trainingSessions       TrainingSession[]
+  progressSnapshots      ProgressSnapshot[]
+  auditLogsAsActor       AuditLog[]        @relation("AuditActor")
+  auditLogsAsSubject     AuditLog[]        @relation("AuditSubject")
+
+  @@index([role, isActive])
+  @@index([isActive])
+  @@index([isProtectedAccount])
+}
+
+model UserProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  preferredLocale String?
+  professionalBio String?  @db.Text
+  timezone        String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+/// Catalog row for a practice template (metadata + optional legacy configJson).
+model SessionTemplate {
+  id          String      @id @default(cuid())
+  /// Stable key for idempotent seeds and imports (kebab-case).
+  slug        String      @unique
+  title       String
+  description String?     @db.Text
+  sessionType SessionType
+  configJson  Json?
+  published   Boolean     @default(true)
+  sortOrder   Int         @default(0)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  sessions  TrainingSession[]
+  questions SessionTemplateQuestion[]
+
+  @@index([published, sortOrder])
+}
+
+/// Ordered prompts for a template (source of truth for guided evaluation flow).
+model SessionTemplateQuestion {
+  id                  String          @id @default(cuid())
+  templateId          String
+  template            SessionTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  ordinal             Int
+  promptText          String          @db.Text
+  helpText            String?         @db.Text
+  expectedDurationSec Int?
+  isRequired          Boolean         @default(true)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  responses SessionResponse[]
+
+  @@unique([templateId, ordinal])
+  @@index([templateId])
+}
+
+/// One learner attempt: answer each template question, then optional AI analysis.
+model TrainingSession {
+  id         String @id @default(cuid())
+  userId     String
+  user       User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  templateId String?
+  template   SessionTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  status    SessionStatus
+  /// Primary input mode for answers (voice-first product; TEXT allowed for dev/MVP typing).
+  inputMode InputMode @default(VOICE)
+  title     String?
+  locale    String?
+  notes     String?   @db.Text
+
+  startedAt        DateTime  @default(now())
+  endedAt          DateTime?
+  completedAt      DateTime?
+  lastActivityAt   DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  responses         SessionResponse[]
+  analyses          SessionAnalysis[]
+  progressSnapshots ProgressSnapshot[]
+
+  @@index([userId, status])
+  @@index([userId, createdAt])
+  @@index([templateId])
+  @@index([status, updatedAt])
+}
+
+/// Learner answer for one template question (audio metadata + transcript for evaluation).
+model SessionResponse {
+  id                 String @id @default(cuid())
+  sessionId          String
+  session            TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  templateQuestionId String
+  templateQuestion   SessionTemplateQuestion @relation(fields: [templateQuestionId], references: [id], onDelete: Restrict)
+  /// Denormalized ordinal (from question) for stable ordering without joins.
+  ordinal            Int
+
+  /// Optional storage key or HTTPS URL when uploads exist; MVP may leave null if only transcript is captured.
+  audioUrl       String?  @db.Text
+  transcriptText String?  @db.Text
+  durationSec    Int?
+  answeredAt     DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([sessionId, templateQuestionId])
+  @@index([sessionId])
+  @@index([templateQuestionId])
+}
+
+/// Persists AI (or rules) outputs; payloadJson holds structured rubric/scores with schemaVersion.
+model SessionAnalysis {
+  id        String          @id @default(cuid())
+  sessionId String
+  session   TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  status    AnalysisStatus @default(PENDING)
+  model     String?
+  summary   String?        @db.Text
+  payloadJson Json?
+  /// Bump when payloadJson shape changes (e.g. "2025-03-01").
+  schemaVersion String?
+  /// Discriminator for UI and workers: e.g. "pronunciation_v2", "holistic_feedback".
+  resultKind    String?
+  errorMessage  String?    @db.Text
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([sessionId, createdAt])
+  @@index([status])
+}
+
+model ProgressSnapshot {
+  id         String         @id @default(cuid())
+  userId     String
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readiness  ReadinessLevel
+  capturedAt DateTime       @default(now())
+  /// Aggregates: streaks, skill scores, session counts — evolve with product.
+  metricsJson Json?
+  /// Optional link to the session that triggered this snapshot.
+  sessionId String?
+  session   TrainingSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([userId, capturedAt])
+  @@index([sessionId])
+}
+
+model AuditLog {
+  id            String   @id @default(cuid())
+  actorUserId   String?
+  actor         User?    @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  subjectUserId String?
+  subject       User?    @relation("AuditSubject", fields: [subjectUserId], references: [id], onDelete: SetNull)
+
+  action       String
+  resourceType String
+  resourceId   String?
+  ipAddress    String?
+  userAgent    String?
+  metadataJson Json?
+  createdAt    DateTime @default(now())
+
+  @@index([actorUserId, createdAt])
+  @@index([subjectUserId])
+  @@index([resourceType, resourceId])
+  @@index([createdAt])
 }
