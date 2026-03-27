@@ -15,7 +15,7 @@ Copy `.env.example` to `.env` and set:
 |----------|----------|---------|
 | `DATABASE_URL` | Yes | PostgreSQL connection string for Prisma |
 | `AUTH_SECRET` | Yes | NextAuth secret (`openssl rand -base64 32`) |
-| `AUTH_URL` | Optional | Canonical public URL for Auth.js. For local dev use `http://localhost:3000`. **In production, either omit it** (the app uses `trustHost` and same-origin redirects) **or set it to your real HTTPS origin** — never leave `localhost` in production or redirects can break. |
+| `AUTH_URL` | Optional | Canonical public URL for Auth.js. For local dev use `http://localhost:3000`. **In production, either omit it** (the app uses `trustHost` and same-origin redirects) **or set it to your real HTTPS origin** — never leave `localhost` in production or redirects can break. Middleware reads the JWT cookie name that matches HTTPS (`__Secure-authjs.session-token`); see `middleware.ts`. |
 | `DEV_USER_EMAIL` / `DEV_USER_PASSWORD` | Optional | Seed a protected `DEVELOPER` account (see Seed) |
 | `OPENAI_API_KEY` | For AI evaluation | Required to run session analysis / evaluation |
 | `OPENAI_EVAL_MODEL` | Optional | Defaults to `gpt-4o-mini` in evaluation code if unset |
