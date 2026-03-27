@@ -1,4 +1,5 @@
 import { LoginForm } from "@/components/shared/login-form";
+import { sanitizeLoginCallbackUrl } from "@/lib/auth/safe-redirect";
 
 export default async function LoginPage({
   searchParams,
@@ -6,5 +7,5 @@ export default async function LoginPage({
   searchParams: Promise<{ callbackUrl?: string }>;
 }>) {
   const { callbackUrl } = await searchParams;
-  return <LoginForm callbackUrl={callbackUrl ?? "/dashboard"} />;
+  return <LoginForm callbackUrl={sanitizeLoginCallbackUrl(callbackUrl)} />;
 }

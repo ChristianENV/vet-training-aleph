@@ -9,6 +9,7 @@ import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
+import { sameOriginRedirectPath } from "@/lib/auth/safe-redirect";
 import { credentialsLoginSchema, type CredentialsLoginInput } from "@/modules/auth/validators";
 
 type FormValues = CredentialsLoginInput;
@@ -41,8 +42,9 @@ export function LoginForm({ callbackUrl }: { callbackUrl: string }) {
               setError("Invalid email or password.");
               return;
             }
-            if (res?.url) router.push(res.url);
-            else router.push(callbackUrl);
+            const nextPath = sameOriginRedirectPath(res?.url ?? null, callbackUrl);
+            router.push(nextPath);
+            router.refresh();
           })}
         >
           <div className="space-y-2">

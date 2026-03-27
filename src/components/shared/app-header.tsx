@@ -15,6 +15,7 @@ import type { UserRole } from "@/generated/prisma/enums";
 import { cn } from "@/lib/utils";
 import { ChevronDownIcon, LogOutIcon } from "lucide-react";
 import { signOut } from "next-auth/react";
+import { useRouter } from "next/navigation";
 
 function initialsFromEmail(email: string): string {
   const local = email.split("@")[0] ?? "?";
@@ -29,6 +30,7 @@ type AppHeaderProps = {
 };
 
 export function AppHeader({ email, role, name }: AppHeaderProps) {
+  const router = useRouter();
   const display = name?.trim() || email;
 
   return (
@@ -69,7 +71,11 @@ export function AppHeader({ email, role, name }: AppHeaderProps) {
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={() => {
-              void signOut({ callbackUrl: "/login" });
+              void (async () => {
+                await signOut({ redirect: false });
+                router.push("/login");
+                router.refresh();
+              })();
             }}
             className="gap-2"
           >
