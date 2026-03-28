@@ -5,6 +5,7 @@ import {
   computeSessionProgress,
   SessionsServiceError,
 } from "@/modules/sessions/application/session-service";
+import { readFormDataBinaryPart } from "@/lib/http/form-data-binary";
 import { finalizeSessionWithUploads } from "@/modules/sessions/application/session-finalize-service";
 import type { NextRequest } from "next/server";
 
@@ -36,11 +37,10 @@ export async function POST(
   const uploads = new Map<string, { buffer: Buffer; contentType: string }>();
   for (const [k, v] of form.entries()) {
     if (!k.startsWith("audio_")) continue;
-    if (!(v instanceof File)) continue;
     const qid = k.slice("audio_".length);
     if (!qid) continue;
-    const buf = Buffer.from(await v.arrayBuffer());
-    uploads.set(qid, { buffer: buf, contentType: v.type || "application/octet-stream" });
+    const parsed = await readFormDataBinaryPart(v);
+    if (parsed) uploads.set(qid, parsed);
   }
 
   try {

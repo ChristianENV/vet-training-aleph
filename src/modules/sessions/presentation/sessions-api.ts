@@ -23,6 +23,8 @@ export type SessionResponseRow = {
   transcriptStatus: string | null;
   transcriptProvider: string | null;
   finalAudioStorageKey: string | null;
+  /** `r2` when the file was stored in Cloudflare R2; `dev-placeholder` when R2 was not configured. */
+  finalAudioProvider: string | null;
   finalAudioDurationSec: number | null;
   finalAudioMimeType: string | null;
   finalAudioBytes: number | null;

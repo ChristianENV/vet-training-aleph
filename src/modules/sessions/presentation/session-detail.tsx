@@ -270,7 +270,10 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
       for (const q of required) {
         const r = byResp.get(q.id);
         const take = localByQuestion.get(q.id);
-        if (!r?.finalAudioStorageKey?.trim() && take?.blob) {
+        const needsMultipart =
+          !!take?.blob &&
+          (!r?.finalAudioStorageKey?.trim() || r?.finalAudioProvider !== "r2");
+        if (needsMultipart) {
           fd.append(`audio_${q.id}`, take.blob, `question-${q.ordinal}.webm`);
         }
       }

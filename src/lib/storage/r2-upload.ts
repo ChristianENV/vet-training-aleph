@@ -52,6 +52,10 @@ export async function uploadToR2WithRetry(
       return;
     } catch (e) {
       lastErr = e;
+      const hint = e instanceof Error ? e.message : String(e);
+      console.warn(
+        `[r2-upload] PutObject attempt ${attempt}/${MAX_ATTEMPTS} failed key=${input.key.slice(0, 120)}: ${hint}`,
+      );
       if (attempt < MAX_ATTEMPTS) {
         await sleep(200 * 2 ** (attempt - 1));
       }

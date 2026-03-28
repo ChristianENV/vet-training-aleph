@@ -57,13 +57,23 @@ const serverEnvSchema = z
     /** Override GPT question count (optional). See transform for defaults when unset. */
     SESSION_GENERATION_MIN_QUESTIONS: z.string().optional(),
     SESSION_GENERATION_MAX_QUESTIONS: z.string().optional(),
-    /** Cloudflare R2 (S3-compatible). When unset, final audio uses dev placeholder keys (no upload). */
+    /**
+     * Cloudflare R2 (S3-compatible). When unset, final audio uses dev placeholder keys (no upload).
+     * You can set either the explicit S3 fields below **or** the Cloudflare-style aliases
+     * (`R2_ACCOUNT_ID` + `R2_BUCKET_NAME`); aliases are merged in the transform.
+     */
     R2_ENDPOINT: z.string().url().optional(),
     R2_BUCKET: z.string().min(1).optional(),
     R2_ACCESS_KEY_ID: z.string().min(1).optional(),
     R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),
     /** Optional public base for signed URLs later; not exposed to learners in UI. */
     R2_PUBLIC_BASE_URL: z.string().url().optional(),
+    /** If set and `R2_ENDPOINT` is unset, endpoint becomes `https://<id>.r2.cloudflarestorage.com`. */
+    R2_ACCOUNT_ID: z.string().min(1).optional(),
+    /** Alias for `R2_BUCKET` (common in Cloudflare dashboards). */
+    R2_BUCKET_NAME: z.string().min(1).optional(),
+    /** Alias for `R2_PUBLIC_BASE_URL` (e.g. r2.dev public bucket URL). */
+    R2_PUBLIC_URL: z.string().url().optional(),
   })
   .transform((data) => {
     const explicitMin = parseOptionalBoundedQuestionCount(
@@ -96,11 +106,28 @@ const serverEnvSchema = z
     const {
       SESSION_GENERATION_MIN_QUESTIONS: _a,
       SESSION_GENERATION_MAX_QUESTIONS: _b,
-      ...rest
+      R2_ENDPOINT: rawR2Endpoint,
+      R2_BUCKET: rawR2Bucket,
+      R2_PUBLIC_BASE_URL: rawR2PublicBase,
+      R2_ACCOUNT_ID: r2AccountId,
+      R2_BUCKET_NAME: r2BucketName,
+      R2_PUBLIC_URL: r2PublicUrl,
+      ...core
     } = data;
 
+    const accountId = r2AccountId?.trim();
+    const r2Endpoint =
+      rawR2Endpoint?.trim() ||
+      (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : undefined);
+    const r2Bucket = rawR2Bucket?.trim() || r2BucketName?.trim();
+    const r2PublicMerged = rawR2PublicBase?.trim() || r2PublicUrl?.trim();
+    const r2Public = r2PublicMerged && r2PublicMerged.length > 0 ? r2PublicMerged : undefined;
+
     return {
-      ...rest,
+      ...core,
+      R2_ENDPOINT: r2Endpoint,
+      R2_BUCKET: r2Bucket,
+      R2_PUBLIC_BASE_URL: r2Public,
       sessionGenerationMinQuestions,
       sessionGenerationMaxQuestions,
     };

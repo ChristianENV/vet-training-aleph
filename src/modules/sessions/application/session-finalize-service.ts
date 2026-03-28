@@ -73,6 +73,24 @@ export async function finalizeSessionWithUploads(
 
   const transcriptFallbackOrdinals: number[] = [];
   const freshUploads = new Map<string, { buffer: Buffer; contentType: string }>();
+  const r2On = isR2Configured(env);
+
+  if (!r2On) {
+    const anyVoice = required.some((q) => {
+      const row = byQ.get(q.id);
+      return (
+        !!row &&
+        ((row.finalAudioDurationSec ?? 0) > 0 ||
+          (row.finalAudioBytes ?? 0) > 0 ||
+          !!row.finalAudioMimeType?.trim())
+      );
+    });
+    if (anyVoice) {
+      console.warn(
+        "[sessions:finalize] R2 is not fully configured. Set R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY plus either R2_ENDPOINT and R2_BUCKET, or R2_ACCOUNT_ID and R2_BUCKET_NAME (endpoint is derived). Without these, voice files are not sent to Cloudflare; keys are dev placeholders only.",
+      );
+    }
+  }
 
   const rollbackToActive = async () => {
     await sessionRepo.updateSessionStatus({
@@ -93,12 +111,22 @@ export async function finalizeSessionWithUploads(
       );
     }
 
-    if (r.finalAudioStorageKey?.trim()) {
+    const upload = uploads.get(q.id);
+    const uploadOk = !!(upload && upload.buffer.length > 0);
+
+    /** Real object in bucket — skip re-upload. */
+    const storedInR2 = r.finalAudioProvider === "r2" && !!r.finalAudioStorageKey?.trim();
+    if (storedInR2) {
       continue;
     }
 
-    const upload = uploads.get(q.id);
-    if (upload && upload.buffer.length > 0) {
+    const transcriptOk = isTranscriptTextSufficient(r.transcriptText);
+    const voiceMetadata =
+      (r.finalAudioDurationSec ?? 0) > 0 ||
+      (r.finalAudioBytes ?? 0) > 0 ||
+      !!r.finalAudioMimeType?.trim();
+
+    if (uploadOk && upload) {
       const key = buildOralAssessmentObjectKey({
         sessionId,
         ordinal: q.ordinal,
@@ -107,18 +135,21 @@ export async function finalizeSessionWithUploads(
         mimeType: upload.contentType || "audio/webm",
       });
       try {
-        if (isR2Configured(env)) {
+        if (r2On) {
           await uploadToR2WithRetry(env, {
             key,
             body: upload.buffer,
             contentType: upload.contentType || "application/octet-stream",
           });
+          if (process.env.NODE_ENV === "development") {
+            console.info(`[sessions:finalize] R2 upload ok bytes=${upload.buffer.length}`);
+          }
         }
         await sessionRepo.updateSessionResponseFinalAudio({
           sessionId,
           sessionQuestionId: q.id,
           finalAudioStorageKey: key,
-          finalAudioProvider: isR2Configured(env) ? "r2" : "dev-placeholder",
+          finalAudioProvider: r2On ? "r2" : "dev-placeholder",
           finalAudioMimeType: upload.contentType,
           finalAudioBytes: upload.buffer.length,
         });
@@ -128,12 +159,16 @@ export async function finalizeSessionWithUploads(
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Upload failed";
+        console.warn(
+          `[sessions:finalize] final_audio_upload failed session=${sessionId} questionOrdinal=${q.ordinal}:`,
+          msg.slice(0, 400),
+        );
         await recordSessionFinalizeIncident({
           userId: actor.id,
           sessionId,
           sessionQuestionId: q.id,
           stage: "final_audio_upload",
-          provider: isR2Configured(env) ? "r2" : "none",
+          provider: r2On ? "r2" : "none",
           errorMessage: msg.slice(0, 8000),
           detailsJson: { questionOrdinal: q.ordinal },
         });
@@ -148,9 +183,28 @@ export async function finalizeSessionWithUploads(
           "FINALIZE_RECOVERABLE",
         );
       }
-    } else if (isTranscriptTextSufficient(r.transcriptText)) {
+      continue;
+    }
+
+    if (transcriptOk) {
       transcriptFallbackOrdinals.push(q.ordinal);
-    } else if ((r.finalAudioDurationSec ?? 0) > 0 && !r.finalAudioStorageKey?.trim()) {
+      continue;
+    }
+
+    if (!r2On && r.finalAudioStorageKey?.trim()) {
+      continue;
+    }
+
+    if (r2On && voiceMetadata) {
+      await rollbackToActive();
+      throw new SessionsServiceError(
+        422,
+        `We couldn’t receive your voice recording for question ${q.ordinal}. Keep this page open while finishing (don’t refresh), save each answer first, then finish — or add a short written note if speech isn’t available.`,
+        "FINALIZE_RECOVERABLE",
+      );
+    }
+
+    if ((r.finalAudioDurationSec ?? 0) > 0 && !r.finalAudioStorageKey?.trim()) {
       await rollbackToActive();
       throw new SessionsServiceError(
         422,
