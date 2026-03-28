@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/table";
 import { roleHasPermission } from "@/lib/auth/permissions";
 import { QueryErrorHint, QueryLoadingHint } from "@/components/shared/query-status";
+import { useState } from "react";
 import {
   createSessionRequest,
   fetchSessionsList,
@@ -38,6 +39,7 @@ export function SessionsHome({ actorRole }: Props) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const canUse = roleHasPermission(actorRole, "sessions:use");
+  const [creatingTemplateId, setCreatingTemplateId] = useState<string | null>(null);
 
   const templatesQuery = useQuery({
     queryKey: ["session-templates"],
@@ -51,6 +53,8 @@ export function SessionsHome({ actorRole }: Props) {
 
   const createMutation = useMutation({
     mutationFn: (templateId: string) => createSessionRequest(templateId),
+    onMutate: (templateId) => setCreatingTemplateId(templateId),
+    onSettled: () => setCreatingTemplateId(null),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["training-sessions"] });
       router.push(`/sessions/${data.session.id}`);
@@ -63,8 +67,9 @@ export function SessionsHome({ actorRole }: Props) {
         <div>
           <h2 className="text-lg font-medium">Templates</h2>
           <p className="text-muted-foreground text-sm">
-            Each template is an ordered set of prompts. Create a run, press Start, then save an answer
-            for each question (transcript for now; voice capture later).
+            Each template is an ordered list of prompts. Create a run, open it, press <strong>Start session</strong>,
+            then type a <strong>transcript</strong> for each question in order. Optional: link an external{" "}
+            <strong>audio URL</strong> — in-app recording is not available in this MVP.
           </p>
         </div>
         {templatesQuery.isLoading ? (
@@ -105,7 +110,9 @@ export function SessionsHome({ actorRole }: Props) {
                       disabled={createMutation.isPending}
                       onClick={() => createMutation.mutate(t.id)}
                     >
-                      {createMutation.isPending ? "Creating…" : "Start new session"}
+                      {createMutation.isPending && creatingTemplateId === t.id
+                        ? "Creating…"
+                        : "Start new session"}
                     </Button>
                   ) : (
                     <p className="text-muted-foreground text-sm">

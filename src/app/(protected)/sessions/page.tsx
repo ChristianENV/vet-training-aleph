@@ -13,7 +13,7 @@ export default async function SessionsPage() {
     <div className="mx-auto max-w-5xl space-y-8">
       <PageHeader
         title="Training sessions"
-        description="Templates define ordered prompts. Create a run, start it, and save an answer for each question before completing."
+        description="Create a run from a template, start it, then answer each question in order using a transcript (recommended). Complete the run before AI evaluation."
       />
       <SessionsHome actorRole={access.role} />
     </div>

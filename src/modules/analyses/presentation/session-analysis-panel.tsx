@@ -96,8 +96,8 @@ export function SessionAnalysisPanel({
       <CardHeader>
         <CardTitle className="text-base">Session analysis (AI)</CardTitle>
         <CardDescription>
-          Structured evaluation for US veterinary workplace English. Available after you mark the
-          session complete.
+          Structured evaluation from your saved answers (transcript-first). Runs only after the session status
+          is Completed. Requires an OpenAI API key on the server (see README).
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -112,33 +112,45 @@ export function SessionAnalysisPanel({
         ) : null}
 
         {canRequest ? (
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-            <Button
-              type="button"
-              size="sm"
-              disabled={evalDisabled}
-              onClick={() => evaluateMut.mutate()}
-            >
-              {evaluateMut.isPending || analysisInFlight
-                ? "Working…"
-                : analysis?.status === AnalysisStatus.COMPLETED
-                  ? "Evaluation complete"
-                  : primaryEvalLabel}
-            </Button>
-            {evalRunBanner?.outcome === "SUCCEEDED" ? (
-              <span className="text-muted-foreground text-sm" role="status">
-                Evaluation completed — results are below.
-              </span>
-            ) : null}
-            {evalRunBanner?.outcome === "FAILED" ? (
-              <span className="text-destructive text-sm" role="alert">
-                The model run did not succeed — details are shown below. You can retry.
-              </span>
-            ) : null}
-            {evaluateMut.isError ? (
-              <span className="text-destructive text-sm">
-                {evaluateMut.error instanceof Error ? evaluateMut.error.message : "Request failed"}
-              </span>
+          <div className="space-y-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+              <Button
+                type="button"
+                size="sm"
+                disabled={evalDisabled}
+                onClick={() => evaluateMut.mutate()}
+              >
+                {evaluateMut.isPending || analysisInFlight
+                  ? "Running evaluation…"
+                  : analysis?.status === AnalysisStatus.COMPLETED
+                    ? "Evaluation complete"
+                    : primaryEvalLabel}
+              </Button>
+              {evalRunBanner?.outcome === "SUCCEEDED" ? (
+                <span className="text-muted-foreground text-sm" role="status">
+                  Model run succeeded — results are below.
+                </span>
+              ) : null}
+              {evalRunBanner?.outcome === "FAILED" ? (
+                <span className="text-destructive text-sm" role="alert">
+                  The model run did not succeed — details are shown below. You can retry.
+                </span>
+              ) : null}
+              {evaluateMut.isError ? (
+                <span className="text-destructive text-sm">
+                  {evaluateMut.error instanceof Error ? evaluateMut.error.message : "Request failed"}
+                </span>
+              ) : null}
+            </div>
+            <p className="text-muted-foreground text-xs">
+              <strong>Status:</strong> Pending / Running = in progress · Completed = success · Failed =
+              error below (retry) · HTTP 200 is normal; check the status badge and outcome message.
+            </p>
+            {analysis?.status === AnalysisStatus.COMPLETED ? (
+              <p className="text-muted-foreground text-sm">
+                This evaluation finished — scores and feedback are below. Use{" "}
+                <strong>Analyses</strong> in the nav for the full list.
+              </p>
             ) : null}
           </div>
         ) : isOwner ? (

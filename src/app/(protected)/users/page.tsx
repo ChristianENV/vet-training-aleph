@@ -13,7 +13,7 @@ export default async function UsersPage() {
     <div className="mx-auto max-w-6xl space-y-8">
       <PageHeader
         title="Users"
-        description="Directory and administration for learner and staff accounts. Protected system accounts are excluded from standard listings."
+        description="Search and manage non-protected accounts. Admins and super admins can create users and change roles; product owners can browse only. Protected developer accounts never appear in this list."
       />
       <UsersDirectory actorRole={access.role} />
     </div>

@@ -13,7 +13,7 @@ export default async function AnalysesPage() {
     <div className="mx-auto max-w-5xl space-y-8">
       <PageHeader
         title="Analyses"
-        description="AI session evaluations and your rolling progress snapshot. Open a row for full scores and feedback."
+        description="AI evaluations from completed sessions and your progress snapshot (updated when an evaluation succeeds). Open a row for full scores and feedback."
       />
       <AnalysesList />
     </div>

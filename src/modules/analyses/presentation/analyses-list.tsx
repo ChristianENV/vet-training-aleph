@@ -64,8 +64,8 @@ export function AnalysesList() {
         <CardHeader>
           <CardTitle className="text-base">Progress snapshot</CardTitle>
           <CardDescription>
-            Updated when a session analysis completes successfully. Readiness reflects your latest
-            evaluated run.
+            Updated when a session analysis reaches <strong>Completed</strong> (not on failed runs).
+            Readiness reflects your latest successful evaluation.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
@@ -79,8 +79,8 @@ export function AnalysesList() {
             </QueryErrorHint>
           ) : !snapshot ? (
             <p className="text-muted-foreground">
-              No progress snapshot yet. Complete a session, run AI evaluation, and your summary will
-              appear here.
+              No progress snapshot yet. Complete a session, run AI evaluation successfully, and your
+              summary will appear here.
             </p>
           ) : (
             <>
@@ -122,7 +122,8 @@ export function AnalysesList() {
             <CardHeader>
               <CardTitle className="text-base">No analyses yet</CardTitle>
               <CardDescription>
-                Complete a training session and run evaluation from the session detail page.
+                Complete a training session (transcript answers), then run evaluation from the session detail
+                page.
               </CardDescription>
             </CardHeader>
           </Card>

@@ -117,6 +117,13 @@ export function UsersDirectory({ actorRole }: Props) {
         ) : null}
       </div>
 
+      {!canCreate ? (
+        <p className="text-muted-foreground max-w-2xl text-sm">
+          Your role can search this directory. Creating users or changing roles requires an admin, super admin,
+          or developer account.
+        </p>
+      ) : null}
+
       {usersQuery.isLoading ? (
         <p className="text-muted-foreground text-sm">Loading users…</p>
       ) : usersQuery.isError ? (

@@ -171,9 +171,9 @@ export function UserDashboardView({ data }: Props) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
-          {!latestProgress ? (
+            {!latestProgress ? (
             <p className="text-muted-foreground">
-              No snapshot yet. Complete a session and run AI evaluation to record readiness.
+              No snapshot yet. Complete a session and run AI evaluation successfully to record readiness.
             </p>
           ) : (
             <>

@@ -317,8 +317,9 @@ export function SessionDetail({ sessionId }: Props) {
             </p>
           ) : null}
           <p className="text-muted-foreground text-sm">
-            {questions.length} question{questions.length === 1 ? "" : "s"} in this template. After
-            you start, record or type your answer for each prompt.
+            {questions.length} question{questions.length === 1 ? "" : "s"} in this template. After you
+            start, use the transcript field for each prompt (recommended for demos). Optional: paste an
+            external audio URL — there is no in-app recorder yet.
           </p>
         </div>
       ) : null}
@@ -345,7 +346,8 @@ export function SessionDetail({ sessionId }: Props) {
           </div>
           {!showComplete ? (
             <p className="text-muted-foreground text-sm">
-              Answer all required questions with a transcript or audio reference before completing.
+              Answer all required questions with a transcript (and optionally an external audio URL) before
+              completing.
             </p>
           ) : null}
           {completeMut.isError ? (
@@ -391,8 +393,8 @@ export function SessionDetail({ sessionId }: Props) {
           <CardHeader>
             <CardTitle className="text-base">Questions</CardTitle>
             <CardDescription>
-              Answer in order. Future steps stay locked until prior questions have a transcript or audio
-              reference. You can go back to edit earlier answers.
+              Answer in order. Future steps stay locked until prior questions have content (usually a
+              transcript). You can go back to edit earlier answers.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -462,7 +464,7 @@ export function SessionDetail({ sessionId }: Props) {
               <p className="text-muted-foreground text-sm">{currentQuestion.helpText}</p>
             ) : null}
             <div className="grid gap-2">
-              <Label htmlFor="answer-transcript">Transcript (what you said or will say)</Label>
+              <Label htmlFor="answer-transcript">Transcript (primary — use this in demos)</Label>
               <textarea
                 id="answer-transcript"
                 rows={5}
@@ -471,7 +473,7 @@ export function SessionDetail({ sessionId }: Props) {
                 className={cn(
                   "border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[120px] w-full rounded-lg border px-2.5 py-2 text-sm transition-colors outline-none focus-visible:ring-3 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
                 )}
-                placeholder="Type or paste your spoken answer here for this MVP (voice capture comes later)."
+                placeholder="Type or paste your answer as if you spoke it aloud."
               />
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -487,7 +489,7 @@ export function SessionDetail({ sessionId }: Props) {
                 />
               </div>
               <div className="grid gap-1.5">
-                <Label htmlFor="answer-audio-url">Audio URL (optional)</Label>
+                <Label htmlFor="answer-audio-url">External audio URL (optional)</Label>
                 <input
                   id="answer-audio-url"
                   type="url"
@@ -495,7 +497,11 @@ export function SessionDetail({ sessionId }: Props) {
                   value={draft.audioUrl}
                   onChange={(e) => setDraft((d) => ({ ...d, audioUrl: e.target.value }))}
                   placeholder="https://…"
+                  title="Link to audio hosted elsewhere — not recorded in-app"
                 />
+                <p className="text-muted-foreground text-xs">
+                  Metadata only: no upload or recording in this MVP.
+                </p>
               </div>
             </div>
             <Button

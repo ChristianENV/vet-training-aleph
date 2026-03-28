@@ -76,6 +76,16 @@ const ADDITIONAL_USER_SEEDS: UserSeed[] = [
     role: UserRole.PRODUCT_OWNER,
   },
   {
+    email: "admin@vet-training.local",
+    name: "Demo Admin",
+    role: UserRole.ADMIN,
+  },
+  {
+    email: "superadmin@vet-training.local",
+    name: "Demo Super Admin",
+    role: UserRole.SUPER_ADMIN,
+  },
+  {
     email: "teacher1@vet-training.local",
     name: "Teacher One",
     role: UserRole.USER,
