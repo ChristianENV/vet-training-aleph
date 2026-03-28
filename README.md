@@ -9,7 +9,9 @@ Production-oriented modular monolith: guided veterinary English training, Auth.j
 
 ## Environment variables
 
-Copy `.env.example` to `.env` and set:
+Copy `.env.example` to `.env` (and optionally `.env.local` for machine-specific overrides). **`DATABASE_URL` must be set in `.env` or `.env.local`** — Prisma CLI and `npm run db:seed` load both files (same idea as Next.js).
+
+Set:
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
@@ -26,7 +28,10 @@ Never commit `.env` with real secrets.
 
 1. **Install:** `npm install` (runs `prisma generate` via `postinstall`).
 2. **Configure:** copy `.env.example` → `.env` and fill `DATABASE_URL`, `AUTH_SECRET`, and optionally `AUTH_URL`.
-3. **Schema:** `npm run db:migrate` (or `npm run db:push` for a quick local sync without migration files).
+3. **Schema:** apply migrations so the DB matches `prisma/schema.prisma`:
+   - **Shared environments / production:** `npx prisma migrate deploy` (uses committed SQL under `prisma/migrations/`).
+   - **Local dev:** `npm run db:migrate` (wraps `prisma migrate dev` — creates new migration files when you change the schema).
+   - **Throwaway DB only:** `npm run db:push` skips migration history — use only when you do not need reproducible deploys.
 4. **Seed:** `npm run db:seed` — loads session templates; creates a developer user if `DEV_USER_EMAIL` and `DEV_USER_PASSWORD` are set in `.env`.
 5. **Run:** `npm run dev` → [http://localhost:3000](http://localhost:3000). Sign in via `/login`; authenticated users are sent to `/dashboard`.
 
@@ -53,8 +58,10 @@ If the key is missing or invalid, the API returns an error; the UI shows the mes
 |--------|---------|
 | `npm run dev` | Next.js dev server |
 | `npm run build` | Production build |
-| `npm run db:push` | Push Prisma schema (dev) |
-| `npm run db:migrate` | Create/apply migrations |
+| `npm run db:push` | Push schema without migration files (throwaway local DBs only) |
+| `npm run db:migrate` | `prisma migrate dev` — apply/create migrations locally |
+| `npx prisma migrate deploy` | Apply committed migrations (CI/production) |
+| `npm run db:deploy` | Same as `prisma migrate deploy` |
 | `npm run db:seed` | Run `prisma/seed.ts` |
 | `npm run db:studio` | Prisma Studio |
 | `npm run db:generate` | Regenerate Prisma client |
