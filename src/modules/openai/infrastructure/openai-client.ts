@@ -18,3 +18,7 @@ export function getQuestionsModelName(): string {
   const env = getServerEnv();
   return env.OPENAI_QUESTIONS_MODEL ?? env.OPENAI_EVAL_MODEL;
 }
+
+export function getTranscriptionModelName(): string {
+  return getServerEnv().OPENAI_TRANSCRIPTION_MODEL;
+}

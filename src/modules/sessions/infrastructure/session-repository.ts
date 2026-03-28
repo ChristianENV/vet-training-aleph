@@ -1,5 +1,5 @@
 import type { Prisma } from "@/generated/prisma/client";
-import { InputMode, SessionStatus } from "@/generated/prisma/enums";
+import { InputMode, SessionStatus, TranscriptStatus } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/db/prisma";
 
 const PRIOR_SESSIONS_FOR_TOPIC = 8;
@@ -158,6 +158,88 @@ export async function updateTrainingSessionFinalizationMeta(
   return prisma.trainingSession.update({
     where: { id: sessionId },
     data: { finalizationMetaJson: meta },
+  });
+}
+
+export async function mergeSessionFinalizationMeta(
+  sessionId: string,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  const row = await prisma.trainingSession.findUnique({
+    where: { id: sessionId },
+    select: { finalizationMetaJson: true },
+  });
+  const prev =
+    row?.finalizationMetaJson &&
+    typeof row.finalizationMetaJson === "object" &&
+    !Array.isArray(row.finalizationMetaJson)
+      ? { ...(row.finalizationMetaJson as Record<string, unknown>) }
+      : {};
+  const next = { ...prev, ...patch };
+  await prisma.trainingSession.update({
+    where: { id: sessionId },
+    data: { finalizationMetaJson: next as Prisma.InputJsonValue },
+  });
+}
+
+export async function updateSessionResponseTranscriptResult(input: {
+  sessionId: string;
+  sessionQuestionId: string;
+  transcriptText: string;
+  transcriptStatus: TranscriptStatus;
+  transcriptProvider: string;
+}) {
+  return prisma.sessionResponse.update({
+    where: {
+      sessionId_sessionQuestionId: {
+        sessionId: input.sessionId,
+        sessionQuestionId: input.sessionQuestionId,
+      },
+    },
+    data: {
+      transcriptText: input.transcriptText,
+      transcriptStatus: input.transcriptStatus,
+      transcriptProvider: input.transcriptProvider,
+    },
+    select: sessionResponsePublicSelect,
+  });
+}
+
+export async function updateSessionResponseTranscriptFailure(input: {
+  sessionId: string;
+  sessionQuestionId: string;
+}) {
+  return prisma.sessionResponse.update({
+    where: {
+      sessionId_sessionQuestionId: {
+        sessionId: input.sessionId,
+        sessionQuestionId: input.sessionQuestionId,
+      },
+    },
+    data: {
+      transcriptStatus: TranscriptStatus.FAILED,
+      transcriptProvider: "openai",
+    },
+    select: sessionResponsePublicSelect,
+  });
+}
+
+export async function markSupportFieldTranscriptReady(input: {
+  sessionId: string;
+  sessionQuestionId: string;
+}) {
+  return prisma.sessionResponse.update({
+    where: {
+      sessionId_sessionQuestionId: {
+        sessionId: input.sessionId,
+        sessionQuestionId: input.sessionQuestionId,
+      },
+    },
+    data: {
+      transcriptStatus: TranscriptStatus.AVAILABLE,
+      transcriptProvider: "support_field",
+    },
+    select: sessionResponsePublicSelect,
   });
 }
 

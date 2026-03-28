@@ -23,6 +23,25 @@ export const evidenceBasisSchema = z.enum([
 
 export type EvidenceBasis = z.infer<typeof evidenceBasisSchema>;
 
+/** Models sometimes omit subsection text; keep schema strict after coercion. */
+const VET_SUBSECTION_FALLBACK =
+  "No separate detail was provided for this area. See the communication overview and other sections of this report.";
+
+function zRequiredTextWithEmptyFallback(maxLen: number) {
+  return z.preprocess(
+    (val: unknown) => {
+      if (val === null || val === undefined) return VET_SUBSECTION_FALLBACK;
+      if (typeof val === "string") {
+        const t = val.trim();
+        return t.length > 0 ? t : VET_SUBSECTION_FALLBACK;
+      }
+      if (typeof val === "number" || typeof val === "boolean") return String(val);
+      return VET_SUBSECTION_FALLBACK;
+    },
+    z.string().min(1).max(maxLen),
+  );
+}
+
 const scoringPillarSchema = z.object({
   /** Null when the model cannot score this pillar reliably from available evidence. */
   score: z.number().min(0).max(100).nullable(),
@@ -70,8 +89,8 @@ export const sessionEvaluationOutputSchema = z.object({
   }),
   veterinaryCommunication: z.object({
     overview: z.string().min(1).max(3500),
-    clientSafetyAndTone: z.string().min(1).max(2500),
-    technicalVsPlainLanguage: z.string().min(1).max(2500),
+    clientSafetyAndTone: zRequiredTextWithEmptyFallback(2500),
+    technicalVsPlainLanguage: zRequiredTextWithEmptyFallback(2500),
     usPracticeNorms: z.array(z.string().min(1)).max(14),
   }),
   perQuestionFeedback: z.array(

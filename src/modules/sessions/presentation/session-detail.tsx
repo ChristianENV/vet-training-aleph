@@ -25,6 +25,7 @@ import {
   cancelSessionRequest,
   fetchSessionDetail,
   finalizeSessionRequest,
+  resumePostFinalizeRequest,
   startSessionRequest,
   submitSessionResponseRequest,
   type TrainingSessionRow,
@@ -82,7 +83,14 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
       const data = q.state.data as { session?: { status?: SessionStatus } } | undefined;
       const st = data?.session?.status;
       if (st === SessionStatus.GENERATING_QUESTIONS) return 2000;
-      if (st === SessionStatus.SAVING_FINAL_RESPONSES || st === SessionStatus.ANALYZING) return 2000;
+      if (
+        st === SessionStatus.SAVING_FINAL_RESPONSES ||
+        st === SessionStatus.TRANSCRIBING ||
+        st === SessionStatus.TRANSCRIPTION_FAILED ||
+        st === SessionStatus.ANALYZING
+      ) {
+        return 2000;
+      }
       return false;
     },
   });
@@ -273,11 +281,37 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
       void queryClient.invalidateQueries({ queryKey: ["session-analysis", sessionId] });
       void queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
       void queryClient.invalidateQueries({ queryKey: ["progress-summary"] });
+      if (data.transcriptionFailed) {
+        flashBanner(
+          "We saved your responses, but couldn’t prepare them for scoring yet. Use Try preparing again when you’re ready.",
+        );
+        return;
+      }
       const analysisId = data.evaluation?.analysis?.id;
       if (analysisId) {
         router.push(`/analyses/${analysisId}`);
       } else {
         flashBanner("Your assessment is saved. Check this page for results or the analyses list.");
+      }
+    },
+  });
+
+  const resumeMut = useMutation({
+    mutationFn: () => resumePostFinalizeRequest(sessionId),
+    onSuccess: (data) => {
+      invalidate();
+      void queryClient.invalidateQueries({ queryKey: ["session-analysis", sessionId] });
+      void queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
+      void queryClient.invalidateQueries({ queryKey: ["progress-summary"] });
+      if (data.transcriptionFailed) {
+        flashBanner("We still couldn’t prepare your answers for scoring. Please try again in a moment.");
+        return;
+      }
+      const analysisId = data.evaluation?.analysis?.id;
+      if (analysisId) {
+        router.push(`/analyses/${analysisId}`);
+      } else {
+        flashBanner("Your results are ready when you are — open this session or your analyses list.");
       }
     },
   });
@@ -364,31 +398,69 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
         </p>
       ) : null}
 
-      {completeMut.isPending ? (
+      {completeMut.isPending || resumeMut.isPending ? (
         <p
           className="bg-muted/60 text-foreground rounded-lg border px-3 py-2 text-sm"
           role="status"
         >
-          Saving your responses and preparing your results. This may take a minute—please keep this page open.
+          {resumeMut.isPending
+            ? "Preparing your answers for scoring. This may take a minute—please keep this page open."
+            : "Saving your responses, then preparing transcripts and your results. This may take a minute—please keep this page open."}
         </p>
       ) : null}
 
-      {s.status === SessionStatus.SAVING_FINAL_RESPONSES || s.status === SessionStatus.ANALYZING ? (
+      {s.status === SessionStatus.SAVING_FINAL_RESPONSES ||
+      s.status === SessionStatus.TRANSCRIBING ||
+      s.status === SessionStatus.ANALYZING ? (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">
               {s.status === SessionStatus.SAVING_FINAL_RESPONSES
                 ? "Saving your responses"
-                : "Analyzing your answers"}
+                : s.status === SessionStatus.TRANSCRIBING
+                  ? "Transcribing your answers"
+                  : "Analyzing your evaluation"}
             </CardTitle>
             <CardDescription>
               {s.status === SessionStatus.SAVING_FINAL_RESPONSES
-                ? "We are finishing your answers securely. Please keep this window open."
-                : "We are preparing your score and feedback. This usually completes within a minute."}
+                ? "We are storing your recordings securely. Please keep this window open."
+                : s.status === SessionStatus.TRANSCRIBING
+                  ? "We are turning your voice answers into text so scoring can be fair and detailed. This usually takes less than a minute."
+                  : "We are preparing your score and coaching feedback. This usually completes within a minute."}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <QueryLoadingHint>Please wait…</QueryLoadingHint>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {s.status === SessionStatus.TRANSCRIPTION_FAILED ? (
+        <Card className="border-amber-500/40 bg-amber-500/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">We saved your responses</CardTitle>
+            <CardDescription>
+              We couldn&apos;t finish preparing them for scoring just yet. Nothing needs to be re-recorded —
+              try again in a moment. If this keeps happening, contact support.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {canMutate ? (
+              <Button
+                type="button"
+                disabled={resumeMut.isPending || completeMut.isPending}
+                onClick={() => resumeMut.mutate()}
+              >
+                {resumeMut.isPending ? "Trying again…" : "Try preparing again"}
+              </Button>
+            ) : (
+              <p className="text-muted-foreground text-sm">Only the session owner can retry from here.</p>
+            )}
+            {resumeMut.isError ? (
+              <p className="text-destructive mt-2 text-sm">
+                {resumeMut.error instanceof Error ? resumeMut.error.message : "Request failed"}
+              </p>
+            ) : null}
           </CardContent>
         </Card>
       ) : null}

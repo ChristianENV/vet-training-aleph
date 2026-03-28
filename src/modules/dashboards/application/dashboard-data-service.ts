@@ -50,7 +50,11 @@ function computeUserNextAction(
       s.status === SessionStatus.DRAFT ||
       s.status === SessionStatus.GENERATING_QUESTIONS ||
       s.status === SessionStatus.ACTIVE ||
-      s.status === SessionStatus.PAUSED
+      s.status === SessionStatus.PAUSED ||
+      s.status === SessionStatus.SAVING_FINAL_RESPONSES ||
+      s.status === SessionStatus.TRANSCRIBING ||
+      s.status === SessionStatus.TRANSCRIPTION_FAILED ||
+      s.status === SessionStatus.ANALYZING
     ) {
       const headline =
         s.status === SessionStatus.DRAFT
@@ -59,9 +63,17 @@ function computeUserNextAction(
             ? "Generating questions for your session"
             : s.status === SessionStatus.PAUSED
               ? "Resume your paused session"
-              : s.status === SessionStatus.ACTIVE
-                ? "Continue or complete your session"
-                : "Continue your session";
+              : s.status === SessionStatus.SAVING_FINAL_RESPONSES
+                ? "Saving your responses"
+                : s.status === SessionStatus.TRANSCRIBING
+                  ? "Preparing your answers for scoring"
+                  : s.status === SessionStatus.TRANSCRIPTION_FAILED
+                    ? "Finish preparing your answers for scoring"
+                    : s.status === SessionStatus.ANALYZING
+                      ? "Scoring your session"
+                      : s.status === SessionStatus.ACTIVE
+                        ? "Continue or complete your session"
+                        : "Continue your session";
       return {
         kind: "continue_session",
         sessionId: s.id,

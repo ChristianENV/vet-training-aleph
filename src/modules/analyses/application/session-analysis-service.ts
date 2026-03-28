@@ -17,6 +17,7 @@ import { recordSessionEvaluationAiUsage } from "@/modules/analyses/infrastructur
 import { recordProgressAfterSuccessfulAnalysis } from "@/modules/analyses/application/progress-service";
 import { AnalysisServiceError } from "@/modules/analyses/application/analysis-errors";
 import { getSessionByIdOrThrow } from "@/modules/sessions/application/session-service";
+import { responseRowReadyForEnrichedEvaluation } from "@/modules/sessions/domain/transcript-readiness";
 import * as sessionRepo from "@/modules/sessions/infrastructure/session-repository";
 
 function assertOwnerForEvaluation(actor: AuthenticatedUser, session: { userId: string }): void {
@@ -105,6 +106,19 @@ export async function evaluateCompletedSession(
   }
 
   const questions = session.sessionQuestions ?? [];
+  const requiredQs = questions.filter((q) => q.isRequired);
+  const respByQ = new Map(responses.map((r) => [r.sessionQuestionId, r]));
+  for (const q of requiredQs) {
+    const r = respByQ.get(q.id);
+    if (!r || !responseRowReadyForEnrichedEvaluation(r)) {
+      throw new AnalysisServiceError(
+        422,
+        "Scoring needs transcripts for each answer. If preparation failed, use “Try preparing again” on the session page.",
+        "TRANSCRIPTS_NOT_READY",
+      );
+    }
+  }
+
   const byQid = new Map(questions.map((q) => [q.id, q]));
   const items = responses
     .slice()

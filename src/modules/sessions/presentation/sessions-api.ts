@@ -21,6 +21,7 @@ export type SessionResponseRow = {
   ordinal: number;
   transcriptText: string | null;
   transcriptStatus: string | null;
+  transcriptProvider: string | null;
   finalAudioStorageKey: string | null;
   finalAudioDurationSec: number | null;
   finalAudioMimeType: string | null;
@@ -163,7 +164,23 @@ export async function finalizeSessionRequest(sessionId: string, formData: FormDa
   return parseApiJsonResponse<{
     session: TrainingSessionRow;
     progress: SessionProgressDto;
-    evaluation: FinalizeSessionEvaluationDto;
+    evaluation: FinalizeSessionEvaluationDto | null;
+    transcriptionFailed: boolean;
+  }>(res);
+}
+
+export async function resumePostFinalizeRequest(sessionId: string) {
+  const res = await fetch(`/api/sessions/${sessionId}/resume-post-finalize`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  return parseApiJsonResponse<{
+    session: TrainingSessionRow;
+    progress: SessionProgressDto;
+    evaluation: FinalizeSessionEvaluationDto | null;
+    transcriptionFailed: boolean;
   }>(res);
 }
 

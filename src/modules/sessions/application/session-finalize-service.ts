@@ -5,15 +5,12 @@ import { prisma } from "@/lib/db/prisma";
 import { buildOralAssessmentObjectKey } from "@/lib/storage/oral-assessment-key";
 import { isR2Configured, uploadToR2WithRetry } from "@/lib/storage/r2-upload";
 import { evaluateCompletedSession } from "@/modules/analyses/application/session-analysis-service";
+import type { EvaluateCompletedSessionResult } from "@/modules/analyses/application/session-analysis-service";
+import { isTranscriptTextSufficient } from "@/modules/sessions/domain/transcript-readiness";
 import * as sessionRepo from "@/modules/sessions/infrastructure/session-repository";
 import { recordSessionFinalizeIncident } from "@/modules/sessions/infrastructure/technical-incident-logging";
+import { runFinalAudioTranscriptionPhase } from "@/modules/sessions/application/session-transcription-service";
 import { SessionsServiceError } from "@/modules/sessions/application/session-service";
-
-const TRANSCRIPT_MIN_CHARS = 50;
-
-function isTranscriptSufficient(t: string | null | undefined): boolean {
-  return (t?.trim().length ?? 0) >= TRANSCRIPT_MIN_CHARS;
-}
 
 function responseRowSatisfied(r: {
   transcriptText: string | null;
@@ -24,17 +21,20 @@ function responseRowSatisfied(r: {
   return (r.finalAudioDurationSec ?? 0) > 0;
 }
 
+export type FinalizeSessionWithUploadsResult = {
+  session: NonNullable<Awaited<ReturnType<typeof sessionRepo.getSessionById>>>;
+  evaluation: EvaluateCompletedSessionResult | null;
+  transcriptionFailed: boolean;
+};
+
 /**
- * Uploads final takes to R2 (or dev placeholders), persists keys, runs automatic analysis.
+ * Uploads final takes to R2 (or dev placeholders), transcribes audio, persists transcripts, runs automatic analysis.
  */
 export async function finalizeSessionWithUploads(
   actor: AuthenticatedUser,
   sessionId: string,
   uploads: Map<string, { buffer: Buffer; contentType: string }>,
-): Promise<{
-  session: NonNullable<Awaited<ReturnType<typeof sessionRepo.getSessionById>>>;
-  evaluation: Awaited<ReturnType<typeof evaluateCompletedSession>>;
-}> {
+): Promise<FinalizeSessionWithUploadsResult> {
   const session = await sessionRepo.getSessionById(sessionId);
   if (!session) {
     throw new SessionsServiceError(404, "Session not found", "NOT_FOUND");
@@ -72,6 +72,7 @@ export async function finalizeSessionWithUploads(
   const byQ = new Map(responses.map((r) => [r.sessionQuestionId, r]));
 
   const transcriptFallbackOrdinals: number[] = [];
+  const freshUploads = new Map<string, { buffer: Buffer; contentType: string }>();
 
   const rollbackToActive = async () => {
     await sessionRepo.updateSessionStatus({
@@ -121,6 +122,10 @@ export async function finalizeSessionWithUploads(
           finalAudioMimeType: upload.contentType,
           finalAudioBytes: upload.buffer.length,
         });
+        freshUploads.set(q.id, {
+          buffer: upload.buffer,
+          contentType: upload.contentType || "application/octet-stream",
+        });
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Upload failed";
         await recordSessionFinalizeIncident({
@@ -132,7 +137,7 @@ export async function finalizeSessionWithUploads(
           errorMessage: msg.slice(0, 8000),
           detailsJson: { questionOrdinal: q.ordinal },
         });
-        if (isTranscriptSufficient(r.transcriptText)) {
+        if (isTranscriptTextSufficient(r.transcriptText)) {
           transcriptFallbackOrdinals.push(q.ordinal);
           continue;
         }
@@ -143,7 +148,7 @@ export async function finalizeSessionWithUploads(
           "FINALIZE_RECOVERABLE",
         );
       }
-    } else if (isTranscriptSufficient(r.transcriptText)) {
+    } else if (isTranscriptTextSufficient(r.transcriptText)) {
       transcriptFallbackOrdinals.push(q.ordinal);
     } else if ((r.finalAudioDurationSec ?? 0) > 0 && !r.finalAudioStorageKey?.trim()) {
       await rollbackToActive();
@@ -179,6 +184,34 @@ export async function finalizeSessionWithUploads(
 
   await sessionRepo.updateSessionStatus({
     sessionId,
+    status: SessionStatus.TRANSCRIBING,
+    lastActivityAt: new Date(),
+  });
+
+  const transcription = await runFinalAudioTranscriptionPhase(actor, sessionId, freshUploads);
+
+  if (!transcription.ok) {
+    await sessionRepo.updateSessionStatus({
+      sessionId,
+      status: SessionStatus.TRANSCRIPTION_FAILED,
+      lastActivityAt: new Date(),
+    });
+    await sessionRepo.mergeSessionFinalizationMeta(sessionId, {
+      transcriptionLastError: transcription.message,
+    });
+    const failedSession = await sessionRepo.getSessionById(sessionId);
+    if (!failedSession) {
+      throw new SessionsServiceError(500, "Session not found after transcription failure", "NOT_FOUND");
+    }
+    return { session: failedSession, evaluation: null, transcriptionFailed: true };
+  }
+
+  await sessionRepo.mergeSessionFinalizationMeta(sessionId, {
+    transcriptionLastError: null,
+  });
+
+  await sessionRepo.updateSessionStatus({
+    sessionId,
     status: SessionStatus.ANALYZING,
     lastActivityAt: new Date(),
   });
@@ -188,5 +221,69 @@ export async function finalizeSessionWithUploads(
   if (!out) {
     throw new SessionsServiceError(500, "Session not found after finalize", "NOT_FOUND");
   }
-  return { session: out, evaluation };
+  return { session: out, evaluation, transcriptionFailed: false };
+}
+
+/**
+ * Retry transcription + evaluation after TRANSCRIPTION_FAILED (audio already saved).
+ */
+export async function resumePostFinalizeTranscription(
+  actor: AuthenticatedUser,
+  sessionId: string,
+): Promise<FinalizeSessionWithUploadsResult> {
+  const session = await sessionRepo.getSessionById(sessionId);
+  if (!session) {
+    throw new SessionsServiceError(404, "Session not found", "NOT_FOUND");
+  }
+  if (session.userId !== actor.id) {
+    throw new SessionsServiceError(403, "You cannot update this session", "FORBIDDEN");
+  }
+  if (session.status !== SessionStatus.TRANSCRIPTION_FAILED) {
+    throw new SessionsServiceError(
+      400,
+      "Only sessions that are waiting to prepare voice answers for scoring can be retried here.",
+      "VALIDATION_ERROR",
+    );
+  }
+
+  await sessionRepo.updateSessionStatus({
+    sessionId,
+    status: SessionStatus.TRANSCRIBING,
+    lastActivityAt: new Date(),
+  });
+
+  const transcription = await runFinalAudioTranscriptionPhase(actor, sessionId, new Map());
+
+  if (!transcription.ok) {
+    await sessionRepo.updateSessionStatus({
+      sessionId,
+      status: SessionStatus.TRANSCRIPTION_FAILED,
+      lastActivityAt: new Date(),
+    });
+    await sessionRepo.mergeSessionFinalizationMeta(sessionId, {
+      transcriptionLastError: transcription.message,
+    });
+    const failedSession = await sessionRepo.getSessionById(sessionId);
+    if (!failedSession) {
+      throw new SessionsServiceError(500, "Session not found", "NOT_FOUND");
+    }
+    return { session: failedSession, evaluation: null, transcriptionFailed: true };
+  }
+
+  await sessionRepo.mergeSessionFinalizationMeta(sessionId, {
+    transcriptionLastError: null,
+  });
+
+  await sessionRepo.updateSessionStatus({
+    sessionId,
+    status: SessionStatus.ANALYZING,
+    lastActivityAt: new Date(),
+  });
+
+  const evaluation = await evaluateCompletedSession(actor, sessionId);
+  const out = await sessionRepo.getSessionById(sessionId);
+  if (!out) {
+    throw new SessionsServiceError(500, "Session not found after resume", "NOT_FOUND");
+  }
+  return { session: out, evaluation, transcriptionFailed: false };
 }

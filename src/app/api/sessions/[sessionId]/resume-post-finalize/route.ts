@@ -5,7 +5,7 @@ import {
   computeSessionProgress,
   SessionsServiceError,
 } from "@/modules/sessions/application/session-service";
-import { finalizeSessionWithUploads } from "@/modules/sessions/application/session-finalize-service";
+import { resumePostFinalizeTranscription } from "@/modules/sessions/application/session-finalize-service";
 import type { NextRequest } from "next/server";
 
 function mapSessionsError(e: SessionsServiceError) {
@@ -18,7 +18,7 @@ function mapAnalysisError(e: AnalysisServiceError) {
 }
 
 export async function POST(
-  request: NextRequest,
+  _request: NextRequest,
   context: { params: Promise<{ sessionId: string }> },
 ) {
   const gate = await requirePermission("sessions:use");
@@ -26,28 +26,10 @@ export async function POST(
 
   const { sessionId } = await context.params;
 
-  let form: FormData;
   try {
-    form = await request.formData();
-  } catch {
-    return jsonError("Invalid multipart body", 400, undefined, "VALIDATION_ERROR");
-  }
-
-  const uploads = new Map<string, { buffer: Buffer; contentType: string }>();
-  for (const [k, v] of form.entries()) {
-    if (!k.startsWith("audio_")) continue;
-    if (!(v instanceof File)) continue;
-    const qid = k.slice("audio_".length);
-    if (!qid) continue;
-    const buf = Buffer.from(await v.arrayBuffer());
-    uploads.set(qid, { buffer: buf, contentType: v.type || "application/octet-stream" });
-  }
-
-  try {
-    const { session, evaluation, transcriptionFailed } = await finalizeSessionWithUploads(
+    const { session, evaluation, transcriptionFailed } = await resumePostFinalizeTranscription(
       gate.user,
       sessionId,
-      uploads,
     );
     return jsonOk({
       session,

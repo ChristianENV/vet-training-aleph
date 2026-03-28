@@ -47,6 +47,8 @@ const serverEnvSchema = z
     OPENAI_EVAL_MODEL: z.string().min(1).optional().default("gpt-4o-mini"),
     /** Model for per-session question generation (defaults to OPENAI_EVAL_MODEL). */
     OPENAI_QUESTIONS_MODEL: z.string().min(1).optional(),
+    /** OpenAI speech-to-text model for final answer transcription (default whisper-1). */
+    OPENAI_TRANSCRIPTION_MODEL: z.string().min(1).optional().default("whisper-1"),
     /**
      * Deployment flavor (optional). `local` with unset SESSION_GENERATION_* uses the local question-count default.
      * Often set in `.env.local`; does not replace `NODE_ENV`.

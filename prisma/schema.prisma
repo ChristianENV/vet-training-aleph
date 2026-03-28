@@ -41,6 +41,10 @@ enum SessionStatus {
   ACTIVE
   /// Final audio uploads to storage (R2) before analysis.
   SAVING_FINAL_RESPONSES
+  /// Transcribing final audio to text before evaluation.
+  TRANSCRIBING
+  /// Transcription failed; answers are saved — user may retry without re-recording.
+  TRANSCRIPTION_FAILED
   /// AI evaluation running after uploads and persistence.
   ANALYZING
   PAUSED

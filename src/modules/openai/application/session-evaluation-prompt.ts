@@ -63,8 +63,8 @@ Required JSON shape (types):
   - priorityFixes: array of strings
 - veterinaryCommunication: object with
   - overview: string
-  - clientSafetyAndTone: string
-  - technicalVsPlainLanguage: string
+  - clientSafetyAndTone: string (must be non-empty; at least one sentence on safety, empathy, and professional tone)
+  - technicalVsPlainLanguage: string (must be non-empty; at least one sentence on jargon vs client-friendly explanations)
   - usPracticeNorms: array of strings
 - perQuestionFeedback: array of at least one object, each with
   - ordinal: number (matches prompt order)

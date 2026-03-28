@@ -5,6 +5,8 @@ export const SESSION_STATUS_LABEL: Record<SessionStatus, string> = {
   [SessionStatus.GENERATING_QUESTIONS]: "Generating questions",
   [SessionStatus.ACTIVE]: "In progress",
   [SessionStatus.SAVING_FINAL_RESPONSES]: "Saving your responses",
+  [SessionStatus.TRANSCRIBING]: "Preparing your answers",
+  [SessionStatus.TRANSCRIPTION_FAILED]: "Couldn’t prepare answers yet",
   [SessionStatus.ANALYZING]: "Analyzing your answers",
   [SessionStatus.PAUSED]: "Paused",
   [SessionStatus.COMPLETED]: "Completed",

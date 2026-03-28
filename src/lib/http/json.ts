@@ -11,7 +11,8 @@ export type ApiErrorCode =
   | "SERVICE_UNAVAILABLE"
   | "QUESTION_GENERATION_FAILED"
   | "MAX_ATTEMPTS"
-  | "FINALIZE_RECOVERABLE";
+  | "FINALIZE_RECOVERABLE"
+  | "TRANSCRIPTS_NOT_READY";
 
 export function jsonOk<T>(data: T, init?: ResponseInit): NextResponse {
   return NextResponse.json({ ok: true as const, data }, init);
