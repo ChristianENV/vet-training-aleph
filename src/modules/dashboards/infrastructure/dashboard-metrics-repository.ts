@@ -24,10 +24,27 @@ export async function countProtectedAccounts() {
   return prisma.user.count({ where: { isProtectedAccount: true } });
 }
 
-export async function countUsersWithAtLeastOneCompletedSession() {
+/**
+ * Distinct user IDs with ≥1 completed session — **any** account (includes protected).
+ * Use for platform-wide diagnostics only; prefer `countVisibleUsersWithAtLeastOneCompletedSession` for directory-aligned adoption.
+ */
+export async function countAllUsersWithAtLeastOneCompletedSession() {
   const rows = await prisma.trainingSession.groupBy({
     by: ["userId"],
     where: { status: SessionStatus.COMPLETED },
+    _count: { _all: true },
+  });
+  return rows.length;
+}
+
+/** Distinct non-protected users with ≥1 completed session — matches directory / `defaultUserListFilter`. */
+export async function countVisibleUsersWithAtLeastOneCompletedSession() {
+  const rows = await prisma.trainingSession.groupBy({
+    by: ["userId"],
+    where: {
+      status: SessionStatus.COMPLETED,
+      user: defaultUserListFilter(),
+    },
     _count: { _all: true },
   });
   return rows.length;

@@ -9,12 +9,13 @@ import {
 } from "@/modules/sessions/infrastructure/session-repository";
 import {
   countAllUsers,
+  countAllUsersWithAtLeastOneCompletedSession,
   countAnalysesTotal,
   countProtectedAccounts,
   countSessionsSince,
   countSessionsTotal,
-  countUsersWithAtLeastOneCompletedSession,
   countVisibleUsersByActive,
+  countVisibleUsersWithAtLeastOneCompletedSession,
   getLatestReadinessDistributionForVisibleUsers,
   groupAnalysisCountsByStatus,
   groupSessionCountsByStatus,
@@ -129,6 +130,7 @@ export type StaffDashboardVariant = "admin" | "product_owner" | "super_admin" | 
 
 export type StaffDashboardData = {
   variant: StaffDashboardVariant;
+  /** User directory: non-protected accounts only (same filter as Users admin list). */
   users: {
     visibleTotal: number;
     active: number;
@@ -138,20 +140,27 @@ export type StaffDashboardData = {
     /** SUPER_ADMIN / DEVELOPER — aggregate count only. */
     protectedAccounts?: number;
   };
-  learnersWithCompletedSession: number;
+  /** Non-protected learners with ≥1 completed session (directory scope). */
+  learnersWithCompletedSessionVisible: number;
+  /** SUPER_ADMIN / DEVELOPER — distinct users with ≥1 completed session including protected-account owners. */
+  learnersWithCompletedSessionAllAccounts?: number;
+  /** All training sessions in the database (every account). */
   sessions: {
     total: number;
     createdLast7Days: number;
     byStatus: Record<SessionStatus, number>;
   };
+  /** All SessionAnalysis rows (every account). */
   analyses: {
     total: number;
     byStatus: Record<AnalysisStatus, number>;
   };
+  /** Latest snapshot per non-protected user only. */
   readiness: {
     distribution: Record<ReadinessLevel, number>;
     learnersWithSnapshot: number;
   };
+  /** Sessions owned by non-protected users only. */
   recentSessions: Awaited<ReturnType<typeof listRecentSessionsForStaffDashboard>>;
 };
 
@@ -173,7 +182,7 @@ export async function getStaffDashboardData(variant: StaffDashboardVariant): Pro
     analysesTotal,
     readiness,
     recentSessions,
-    learnersCompleted,
+    learnersCompletedVisible,
   ] = await Promise.all([
     countVisibleUsersByActive(),
     countSessionsTotal(),
@@ -183,7 +192,7 @@ export async function getStaffDashboardData(variant: StaffDashboardVariant): Pro
     countAnalysesTotal(),
     getLatestReadinessDistributionForVisibleUsers(),
     listRecentSessionsForStaffDashboard(12),
-    countUsersWithAtLeastOneCompletedSession(),
+    countVisibleUsersWithAtLeastOneCompletedSession(),
   ]);
 
   const base: StaffDashboardData = {
@@ -193,7 +202,7 @@ export async function getStaffDashboardData(variant: StaffDashboardVariant): Pro
       active: visibleCounts.active,
       inactive: visibleCounts.inactive,
     },
-    learnersWithCompletedSession: learnersCompleted,
+    learnersWithCompletedSessionVisible: learnersCompletedVisible,
     sessions: {
       total: sessionsTotal,
       createdLast7Days: sessions7d,
@@ -208,12 +217,14 @@ export async function getStaffDashboardData(variant: StaffDashboardVariant): Pro
   };
 
   if (variant === "super_admin" || variant === "developer") {
-    const [allAccountsTotal, protectedAccounts] = await Promise.all([
+    const [allAccountsTotal, protectedAccounts, learnersCompletedAll] = await Promise.all([
       countAllUsers(),
       countProtectedAccounts(),
+      countAllUsersWithAtLeastOneCompletedSession(),
     ]);
     base.users.allAccountsTotal = allAccountsTotal;
     base.users.protectedAccounts = protectedAccounts;
+    base.learnersWithCompletedSessionAllAccounts = learnersCompletedAll;
   }
 
   return base;
