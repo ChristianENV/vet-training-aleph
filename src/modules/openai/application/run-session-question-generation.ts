@@ -4,7 +4,7 @@ import {
   SESSION_QUESTION_GENERATION_SYSTEM,
 } from "@/modules/openai/application/session-question-generation-prompt";
 import {
-  generatedQuestionsOutputSchema,
+  buildGeneratedQuestionsOutputSchema,
   type GeneratedQuestionsOutput,
 } from "@/modules/openai/schemas/generated-questions-output";
 import type { SessionType } from "@/generated/prisma/enums";
@@ -51,12 +51,23 @@ export async function runSessionQuestionGenerationModel(input: {
   sessionType: SessionType;
   templateDescription: string | null;
   priorPromptsSample: string[];
+  questionCountMin: number;
+  questionCountMax: number;
 }): Promise<{ output: GeneratedQuestionsOutput; usage: QuestionGenerationUsage }> {
   const model = getQuestionsModelName();
+  const outputSchema = buildGeneratedQuestionsOutputSchema(
+    input.questionCountMin,
+    input.questionCountMax,
+  );
+
   const userMessage = buildSessionQuestionGenerationUserMessage({
-    ...input,
-    questionCountMin: 5,
-    questionCountMax: 10,
+    templateTitle: input.templateTitle,
+    templateSlug: input.templateSlug,
+    sessionType: input.sessionType,
+    templateDescription: input.templateDescription,
+    priorPromptsSample: input.priorPromptsSample,
+    questionCountMin: input.questionCountMin,
+    questionCountMax: input.questionCountMax,
   });
 
   const client = createOpenAIClient();
@@ -88,7 +99,7 @@ export async function runSessionQuestionGenerationModel(input: {
     throw new Error("Model did not return valid JSON");
   }
 
-  const parsed = generatedQuestionsOutputSchema.safeParse(parsedJson);
+  const parsed = outputSchema.safeParse(parsedJson);
   if (!parsed.success) {
     const msg = parsed.error.flatten();
     throw new Error(`Invalid question payload: ${JSON.stringify(msg)}`);

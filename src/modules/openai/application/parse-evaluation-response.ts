@@ -1,8 +1,10 @@
 import {
+  ENRICHED_EVAL_RESULT_KIND,
+  ENRICHED_EVAL_SCHEMA_VERSION,
   sessionEvaluationOutputSchema,
+  type OralReadinessLevel,
   type SessionEvaluationOutput,
 } from "@/modules/openai/schemas/session-evaluation-output";
-import { ReadinessLevel } from "@/generated/prisma/enums";
 
 /**
  * Extract JSON object from model text (handles optional ```json fences).
@@ -16,106 +18,96 @@ export function extractJsonObject(raw: string): string {
   return trimmed;
 }
 
-function firstNumber(...values: unknown[]): number | undefined {
-  for (const value of values) {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    if (typeof value === "string") {
-      const parsed = Number(value.trim());
-      if (Number.isFinite(parsed)) return parsed;
-    }
+function deepSnakeToCamel(value: unknown): unknown {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) {
+    return value.map(deepSnakeToCamel);
   }
-  return undefined;
+  const o = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(o)) {
+    const camel = k.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+    out[camel] = deepSnakeToCamel(v);
+  }
+  return out;
 }
 
-function normalizeReadiness(value: unknown): ReadinessLevel | undefined {
+function normalizeReadiness(value: unknown): OralReadinessLevel | undefined {
   if (typeof value !== "string") return undefined;
-  const normalized = value.trim().toUpperCase().replaceAll(" ", "_");
-  if (
-    normalized === ReadinessLevel.FOUNDATION ||
-    normalized === ReadinessLevel.DEVELOPING ||
-    normalized === ReadinessLevel.PROFICIENT ||
-    normalized === ReadinessLevel.WORK_READY
-  ) {
-    return normalized;
-  }
+  const s = value.trim().toLowerCase().replace(/\s+/g, "_");
+  const allowed: OralReadinessLevel[] = [
+    "not_ready",
+    "developing",
+    "functional",
+    "near_ready",
+    "ready",
+  ];
+  if (allowed.includes(s as OralReadinessLevel)) return s as OralReadinessLevel;
+  const up = value.trim().toUpperCase().replace(/\s+/g, "_");
+  if (up === "FOUNDATION") return "not_ready";
+  if (up === "DEVELOPING") return "developing";
+  if (up === "PROFICIENT") return "functional";
+  if (up === "WORK_READY") return "ready";
   return undefined;
 }
 
-function asStringArray(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const items = value
-    .map((v) => (typeof v === "string" ? v.trim() : ""))
-    .filter((v) => v.length > 0);
-  return items.length ? items : undefined;
+function normalizeEvidenceBasis(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const s = value.trim().toLowerCase().replace(/\s+/g, "_");
+  const map: Record<string, string> = {
+    transcript_only: "transcript_only",
+    transcript_plus_timing_metadata: "transcript_plus_timing_metadata",
+    transcript_plus_timing: "transcript_plus_timing_metadata",
+    audio_derived_features: "audio_derived_features",
+    audio_features: "audio_derived_features",
+  };
+  return map[s] ?? (s in map ? s : undefined);
+}
+
+function normalizeConfidenceLevel(value: unknown): "low" | "medium" | "high" | undefined {
+  if (typeof value !== "string") return undefined;
+  const s = value.trim().toLowerCase();
+  if (s === "low" || s === "medium" || s === "high") return s;
+  return undefined;
 }
 
 /**
- * Handles common model variations: nested `scores`, snake_case fields, numeric strings,
- * and empty/missing arrays by filling safe fallback content.
+ * Coerce common model quirks before Zod validation.
  */
 function normalizeEvaluationShape(parsed: unknown): unknown {
   if (!parsed || typeof parsed !== "object") return parsed;
-  const obj = parsed as Record<string, unknown>;
-  const scores =
-    obj.scores && typeof obj.scores === "object" ? (obj.scores as Record<string, unknown>) : undefined;
+  let obj = deepSnakeToCamel(parsed) as Record<string, unknown>;
 
-  const overallScore = firstNumber(
-    obj.overallScore,
-    obj.overall_score,
-    obj.totalScore,
-    obj.total_score,
-    scores?.overallScore,
-    scores?.overall_score,
-  );
-  const fluencyScore = firstNumber(obj.fluencyScore, obj.fluency_score, scores?.fluencyScore, scores?.fluency_score);
-  const technicalAccuracyScore = firstNumber(
-    obj.technicalAccuracyScore,
-    obj.technical_accuracy_score,
-    scores?.technicalAccuracyScore,
-    scores?.technical_accuracy_score,
-  );
-  const clientCommunicationScore = firstNumber(
-    obj.clientCommunicationScore,
-    obj.client_communication_score,
-    scores?.clientCommunicationScore,
-    scores?.client_communication_score,
-  );
-  const professionalismScore = firstNumber(
-    obj.professionalismScore,
-    obj.professionalism_score,
-    scores?.professionalismScore,
-    scores?.professionalism_score,
-  );
-  const confidenceScore = firstNumber(
-    obj.confidenceScore,
-    obj.confidence_score,
-    scores?.confidenceScore,
-    scores?.confidence_score,
-  );
+  const wrapped = obj.evaluation;
+  if (wrapped && typeof wrapped === "object" && !obj.sessionSummary) {
+    obj = { ...(wrapped as Record<string, unknown>) };
+  }
 
-  const summary =
-    (typeof obj.summary === "string" && obj.summary.trim()) ||
-    (typeof obj.overallFeedback === "string" && obj.overallFeedback.trim()) ||
-    (typeof obj.feedback === "string" && obj.feedback.trim()) ||
-    "Evaluation completed. Review detailed strengths, weaknesses, and recommendations.";
+  obj.schemaVersion = typeof obj.schemaVersion === "string" && obj.schemaVersion.trim()
+    ? obj.schemaVersion.trim()
+    : ENRICHED_EVAL_SCHEMA_VERSION;
+  obj.resultKind = typeof obj.resultKind === "string" && obj.resultKind.trim()
+    ? obj.resultKind.trim()
+    : ENRICHED_EVAL_RESULT_KIND;
 
-  return {
-    overallScore,
-    fluencyScore,
-    technicalAccuracyScore,
-    clientCommunicationScore,
-    professionalismScore,
-    confidenceScore,
-    readinessLevel:
-      normalizeReadiness(obj.readinessLevel) ??
-      normalizeReadiness(obj.readiness_level) ??
-      ReadinessLevel.DEVELOPING,
-    strengths: asStringArray(obj.strengths) ?? ["Shows willingness to communicate in clinical scenarios."],
-    weaknesses: asStringArray(obj.weaknesses) ?? ["Needs more precise and consistent clinical English phrasing."],
-    recommendations:
-      asStringArray(obj.recommendations) ?? ["Practice one full response per prompt with clearer structure."],
-    summary,
-  };
+  const rl = normalizeReadiness(obj.readinessLevel);
+  if (rl) obj.readinessLevel = rl;
+
+  const audio = obj.audioAndDelivery;
+  if (audio && typeof audio === "object") {
+    const a = audio as Record<string, unknown>;
+    const eb = normalizeEvidenceBasis(a.evidenceBasis);
+    if (eb) a.evidenceBasis = eb;
+  }
+
+  const conf = obj.confidenceAndLimits;
+  if (conf && typeof conf === "object") {
+    const c = conf as Record<string, unknown>;
+    const cl = normalizeConfidenceLevel(c.confidenceLevel);
+    if (cl) c.confidenceLevel = cl;
+  }
+
+  return obj;
 }
 
 export function parseEvaluationJson(rawModelText: string):
@@ -135,7 +127,8 @@ export function parseEvaluationJson(rawModelText: string):
     return { ok: false, error: "Model output is not valid JSON" };
   }
 
-  const result = sessionEvaluationOutputSchema.safeParse(normalizeEvaluationShape(parsed));
+  const normalized = normalizeEvaluationShape(parsed);
+  const result = sessionEvaluationOutputSchema.safeParse(normalized);
   if (!result.success) {
     return {
       ok: false,

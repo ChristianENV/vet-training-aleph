@@ -273,6 +273,8 @@ export async function startSession(actor: AuthenticatedUser, sessionId: string) 
       sessionType: template.sessionType,
       templateDescription: template.description ?? null,
       priorPromptsSample: priorPrompts,
+      questionCountMin: env.sessionGenerationMinQuestions,
+      questionCountMax: env.sessionGenerationMaxQuestions,
     });
 
     const cost = estimateOpenAiMiniCostUsdFromUsage(
@@ -307,6 +309,8 @@ export async function startSession(actor: AuthenticatedUser, sessionId: string) 
       requestMetaJson: {
         templateSlug: template.slug,
         priorPromptCount: priorPrompts.length,
+        questionCountMin: env.sessionGenerationMinQuestions,
+        questionCountMax: env.sessionGenerationMaxQuestions,
       },
       responseMetaJson: {
         questionCount: output.questions.length,

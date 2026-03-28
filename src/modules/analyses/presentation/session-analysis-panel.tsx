@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AnalysisStatus, ReadinessLevel } from "@/generated/prisma/enums";
+import { AnalysisStatus } from "@/generated/prisma/enums";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,29 +16,14 @@ import {
   requestSessionEvaluation,
   type SessionEvaluationRunDto,
 } from "./analyses-api";
-import { ANALYSIS_STATUS_LABEL, READINESS_LABEL } from "./analysis-labels";
+import { ANALYSIS_STATUS_LABEL } from "./analysis-labels";
+import { EnrichedAnalysisSections, LegacyAnalysisSections } from "./analysis-results-sections";
+import {
+  getAnalysisPayloadShape,
+  readEnrichedEvaluation,
+  readLegacyEvaluationV1,
+} from "./evaluation-payload";
 import { useState } from "react";
-
-type EvaluationPayload = {
-  overallScore?: number;
-  fluencyScore?: number;
-  technicalAccuracyScore?: number;
-  clientCommunicationScore?: number;
-  professionalismScore?: number;
-  confidenceScore?: number;
-  readinessLevel?: string;
-  strengths?: string[];
-  weaknesses?: string[];
-  recommendations?: string[];
-};
-
-function readEvaluation(payloadJson: unknown): EvaluationPayload | null {
-  if (!payloadJson || typeof payloadJson !== "object") return null;
-  const o = payloadJson as Record<string, unknown>;
-  const ev = o.evaluation;
-  if (!ev || typeof ev !== "object") return null;
-  return ev as EvaluationPayload;
-}
 
 type Props = {
   sessionId: string;
@@ -82,7 +67,10 @@ export function SessionAnalysisPanel({
   }
 
   const analysis = analysisQuery.data?.analysis ?? null;
-  const evaluation = analysis?.payloadJson ? readEvaluation(analysis.payloadJson) : null;
+  const shape =
+    analysis?.status === AnalysisStatus.COMPLETED ? getAnalysisPayloadShape(analysis.payloadJson) : "unknown";
+  const enriched = shape === "enriched_v2" ? readEnrichedEvaluation(analysis?.payloadJson) : null;
+  const legacy = shape === "legacy_v1" ? readLegacyEvaluationV1(analysis?.payloadJson) : null;
   const analysisInFlight =
     analysis?.status === AnalysisStatus.RUNNING || analysis?.status === AnalysisStatus.PENDING;
   const evalDisabled =
@@ -90,6 +78,8 @@ export function SessionAnalysisPanel({
 
   const primaryEvalLabel =
     analysis?.status === AnalysisStatus.FAILED ? "Retry evaluation" : "Run evaluation again";
+
+  const showCompactSummary = analysis?.summary && !enriched;
 
   return (
     <Card>
@@ -149,8 +139,8 @@ export function SessionAnalysisPanel({
             </p>
             {analysis?.status === AnalysisStatus.COMPLETED ? (
               <p className="text-muted-foreground text-sm">
-                This evaluation finished — scores and feedback are below. Use{" "}
-                <strong>Analyses</strong> in the nav for the full list.
+                This evaluation finished — coaching details are below. Use <strong>Analyses</strong> in the nav
+                for the full page view.
               </p>
             ) : null}
           </div>
@@ -191,81 +181,27 @@ export function SessionAnalysisPanel({
               </div>
             ) : null}
 
-            {analysis.status === AnalysisStatus.COMPLETED && analysis.summary ? (
+            {analysis.status === AnalysisStatus.COMPLETED && showCompactSummary ? (
               <div>
                 <p className="text-muted-foreground mb-1 text-xs font-medium uppercase">Summary</p>
                 <p className="text-sm whitespace-pre-wrap">{analysis.summary}</p>
               </div>
             ) : null}
 
-            {analysis.status === AnalysisStatus.COMPLETED && evaluation ? (
-              <div className="space-y-3">
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {[
-                    ["Overall", evaluation.overallScore],
-                    ["Fluency", evaluation.fluencyScore],
-                    ["Technical accuracy", evaluation.technicalAccuracyScore],
-                    ["Client communication", evaluation.clientCommunicationScore],
-                    ["Professionalism", evaluation.professionalismScore],
-                    ["Confidence", evaluation.confidenceScore],
-                  ].map(([label, v]) =>
-                    typeof v === "number" ? (
-                      <div
-                        key={String(label)}
-                        className="bg-muted/40 flex justify-between rounded-md border px-2 py-1.5 text-sm"
-                      >
-                        <span className="text-muted-foreground">{label}</span>
-                        <span className="font-medium tabular-nums">{v}</span>
-                      </div>
-                    ) : null,
-                  )}
-                </div>
-                {evaluation.readinessLevel ? (
-                  <p className="text-sm">
-                    <span className="text-muted-foreground">Readiness: </span>
-                    <span className="font-medium">
-                      {READINESS_LABEL[evaluation.readinessLevel as ReadinessLevel] ??
-                        evaluation.readinessLevel}
-                    </span>
-                  </p>
-                ) : null}
-                {evaluation.strengths?.length ? (
-                  <div>
-                    <p className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-                      Strengths
-                    </p>
-                    <ul className="list-inside list-disc text-sm">
-                      {evaluation.strengths.map((s) => (
-                        <li key={s}>{s}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-                {evaluation.weaknesses?.length ? (
-                  <div>
-                    <p className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-                      Weaknesses
-                    </p>
-                    <ul className="list-inside list-disc text-sm">
-                      {evaluation.weaknesses.map((s) => (
-                        <li key={s}>{s}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-                {evaluation.recommendations?.length ? (
-                  <div>
-                    <p className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-                      Recommendations
-                    </p>
-                    <ul className="list-inside list-disc text-sm">
-                      {evaluation.recommendations.map((s) => (
-                        <li key={s}>{s}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
+            {analysis.status === AnalysisStatus.COMPLETED && enriched ? (
+              <div className="max-h-[min(70vh,720px)] overflow-y-auto pr-1">
+                <EnrichedAnalysisSections data={enriched} />
               </div>
+            ) : null}
+
+            {analysis.status === AnalysisStatus.COMPLETED && !enriched && legacy ? (
+              <LegacyAnalysisSections ev={legacy} />
+            ) : null}
+
+            {analysis.status === AnalysisStatus.COMPLETED && !enriched && !legacy ? (
+              <p className="text-muted-foreground text-sm">
+                Results are saved in an unrecognized format. Try running the evaluation again.
+              </p>
             ) : null}
           </div>
         )}

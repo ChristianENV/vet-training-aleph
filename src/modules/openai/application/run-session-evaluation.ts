@@ -14,6 +14,34 @@ export type EvaluationQaItem = {
   durationSec: number | null;
 };
 
+function buildEvidenceCapsule(items: EvaluationQaItem[], transcriptFallbackOrdinals: number[]): string {
+  const lines: string[] = [
+    "The model does not receive raw audio waveforms or server-stored audio files. Evaluation is based on text transcripts (and any support-field text merged into responses), plus optional per-answer duration in seconds.",
+    "Duration alone is not sufficient for precise pacing, pause patterns, or pronunciation. Unless true audio-derived features are explicitly listed in this message (they are not by default), set audioAndDelivery.evidenceBasis to transcript_only or transcript_plus_timing_metadata.",
+    "Set pronunciationScore and estimatedPaceWpm to null unless reliable audio-derived metrics are provided below. Never infer pronunciation or fine-grained pacing from wording alone.",
+  ];
+  if (transcriptFallbackOrdinals.length > 0) {
+    lines.push(
+      `Written support notes were used instead of voice for some prompts (ordinals: ${transcriptFallbackOrdinals.join(", ")}). Weight limitations accordingly.`,
+    );
+  }
+  lines.push("Per-prompt evidence:");
+  for (const item of items) {
+    const hasTx = !!item.transcriptText?.trim();
+    const dur = item.durationSec != null ? `${item.durationSec}s recorded` : "no duration metadata";
+    const audioNote = item.audioUrl?.trim()
+      ? "final audio stored server-side (not attached for this evaluation)"
+      : "no final audio reference";
+    lines.push(
+      `- Ordinal ${item.ordinal}: ${hasTx ? "transcript available" : "empty or missing transcript"} · ${dur} · ${audioNote}`,
+    );
+  }
+  lines.push(
+    'audio_derived_features: not supplied — do not claim acoustic measurements; keep pronunciationScore and estimatedPaceWpm null unless you state clearly they are unknown (null).',
+  );
+  return lines.join("\n");
+}
+
 /**
  * Calls OpenAI once, returns raw text + validated structured evaluation.
  * All side effects stay outside this module (callers persist to DB).
@@ -23,6 +51,7 @@ export async function runSessionEvaluationModel(input: {
   templateTitle: string | null;
   sessionType: string;
   items: EvaluationQaItem[];
+  transcriptFallbackOrdinals: number[];
 }): Promise<{
   rawText: string;
   evaluation: SessionEvaluationOutput;
@@ -31,16 +60,19 @@ export async function runSessionEvaluationModel(input: {
   const qaLines = input.items.map((item) => {
     const answer =
       item.transcriptText?.trim() ||
-      (item.audioUrl?.trim() ? `[Audio reference: ${item.audioUrl}]` : "(empty)");
+      (item.audioUrl?.trim() ? "[Voice answer recorded; transcript not available]" : "(empty)");
     const dur = item.durationSec != null ? ` · recorded ${item.durationSec}s` : "";
     return `[${item.ordinal}] Question: ${item.promptText}\nLearner response${dur}: ${answer}`;
   });
+
+  const evidenceCapsule = buildEvidenceCapsule(input.items, input.transcriptFallbackOrdinals);
 
   const userMessage = buildSessionEvaluationUserMessage({
     sessionTitle: input.sessionTitle,
     templateTitle: input.templateTitle,
     sessionType: input.sessionType,
     qaLines,
+    evidenceCapsule,
   });
 
   const client = createOpenAIClient();
@@ -49,7 +81,7 @@ export async function runSessionEvaluationModel(input: {
   const completion = await client.chat.completions.create({
     model,
     temperature: 0.25,
-    max_tokens: 4096,
+    max_tokens: 8192,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: SESSION_EVALUATION_SYSTEM_PROMPT },

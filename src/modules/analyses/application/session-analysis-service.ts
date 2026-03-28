@@ -25,6 +25,14 @@ function assertOwnerForEvaluation(actor: AuthenticatedUser, session: { userId: s
   }
 }
 
+function readTranscriptFallbackOrdinals(meta: unknown): number[] {
+  if (!meta || typeof meta !== "object") return [];
+  const o = meta as Record<string, unknown>;
+  const arr = o.transcriptFallbackOrdinals;
+  if (!Array.isArray(arr)) return [];
+  return arr.filter((x): x is number => typeof x === "number");
+}
+
 /** Whether the synchronous OpenAI + parse pipeline produced a COMPLETED row (vs FAILED). */
 export type SessionEvaluationRunOutcome = "SUCCEEDED" | "FAILED";
 
@@ -117,34 +125,26 @@ export async function evaluateCompletedSession(
   const modelName = env.OPENAI_EVAL_MODEL;
 
   try {
+    const transcriptFallbackOrdinals = readTranscriptFallbackOrdinals(session.finalizationMetaJson);
+
     const { rawText, evaluation, usage } = await runSessionEvaluationModel({
       sessionTitle: session.title,
       templateTitle: session.template?.title ?? null,
       sessionType: session.template?.sessionType ?? SessionType.GUIDED_DIALOGUE,
       items,
+      transcriptFallbackOrdinals,
     });
 
     const payloadJson: Prisma.InputJsonValue = {
       schemaVersion: ANALYSIS_SCHEMA_VERSION,
       resultKind: ANALYSIS_RESULT_KIND,
       rawModelOutput: rawText,
-      evaluation: {
-        overallScore: evaluation.overallScore,
-        fluencyScore: evaluation.fluencyScore,
-        technicalAccuracyScore: evaluation.technicalAccuracyScore,
-        clientCommunicationScore: evaluation.clientCommunicationScore,
-        professionalismScore: evaluation.professionalismScore,
-        confidenceScore: evaluation.confidenceScore,
-        readinessLevel: evaluation.readinessLevel,
-        strengths: evaluation.strengths,
-        weaknesses: evaluation.weaknesses,
-        recommendations: evaluation.recommendations,
-      },
+      evaluation: evaluation as unknown as Prisma.InputJsonValue,
     };
 
     await analysisRepo.markAnalysisCompleted(record.id, {
       model: modelName,
-      summary: evaluation.summary,
+      summary: evaluation.sessionSummary,
       payloadJson,
     });
 

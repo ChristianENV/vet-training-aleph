@@ -21,6 +21,8 @@ Copy **`.env.example`** to **`.env`** (and optionally **`.env.local`** for machi
 | `DEV_USER_EMAIL` / `DEV_USER_PASSWORD` | Optional | Seed a **protected** `DEVELOPER` account (excluded from normal user listings). See [Seed](#seed) |
 | `OPENAI_API_KEY` | **For AI evaluation** | Required to run session analysis / evaluation after a session is **Completed** |
 | `OPENAI_EVAL_MODEL` | Optional | Defaults to `gpt-4o-mini` in evaluation code if unset |
+| `APP_ENV` | Optional | e.g. `local` for a workstation. With unset `SESSION_GENERATION_*`, **`APP_ENV=local`** uses **4–4** questions (same as **`NODE_ENV=development`**). Otherwise defaults follow **`SESSION_GENERATION_*`** rules below. |
+| `SESSION_GENERATION_MIN_QUESTIONS` / `SESSION_GENERATION_MAX_QUESTIONS` | Optional | Integer bounds (1–25) for how many oral prompts GPT generates per session. If unset: **`APP_ENV=local` or `NODE_ENV=development`** → **4–4**; **all other cases** (e.g. production, test CI) → **5–10**. Min must be ≤ max. |
 
 Never commit `.env` with real secrets.
 

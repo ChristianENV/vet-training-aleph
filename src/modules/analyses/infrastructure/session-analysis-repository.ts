@@ -1,9 +1,13 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { AnalysisStatus } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/db/prisma";
+import {
+  ENRICHED_EVAL_RESULT_KIND,
+  ENRICHED_EVAL_SCHEMA_VERSION,
+} from "@/modules/openai/schemas/session-evaluation-output";
 
-export const ANALYSIS_SCHEMA_VERSION = "2025-03-26-session-eval-v1";
-export const ANALYSIS_RESULT_KIND = "session_language_eval_v1";
+export const ANALYSIS_SCHEMA_VERSION = ENRICHED_EVAL_SCHEMA_VERSION;
+export const ANALYSIS_RESULT_KIND = ENRICHED_EVAL_RESULT_KIND;
 
 export async function findRunningAnalysisForSession(sessionId: string) {
   return prisma.sessionAnalysis.findFirst({

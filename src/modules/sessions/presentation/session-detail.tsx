@@ -32,6 +32,7 @@ import {
 import { MicrophonePrepCard } from "./microphone-prep-card";
 import { OralAssessmentWizard } from "./oral-assessment-wizard";
 import { SESSION_STATUS_LABEL, SESSION_TYPE_LABEL } from "./session-labels";
+import { formatSessionQuestionCountRange } from "./session-question-generation-copy";
 import {
   hasUnsavedLocalVoiceTake,
   indexOfFirstUnsatisfied,
@@ -61,9 +62,11 @@ function canCompleteSession(session: TrainingSessionRow): boolean {
 
 type Props = {
   sessionId: string;
+  /** Matches server env used when starting question generation (for accurate loading copy). */
+  questionGenerationBounds: { min: number; max: number };
 };
 
-export function SessionDetail({ sessionId }: Props) {
+export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: auth } = useSessionUser();
@@ -401,8 +404,13 @@ export function SessionDetail({ sessionId }: Props) {
           <CardHeader>
             <CardTitle className="text-base">Preparing your oral prompts</CardTitle>
             <CardDescription>
-              We are generating a fresh set of between five and ten spoken prompts for this topic, informed by
-              your past practice on the same subject when available. This usually takes a few seconds.
+              We are generating a fresh set of{" "}
+              {formatSessionQuestionCountRange(
+                questionGenerationBounds.min,
+                questionGenerationBounds.max,
+              )}{" "}
+              for this topic, informed by your past practice on the same subject when available. This usually
+              takes a few seconds.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -429,8 +437,13 @@ export function SessionDetail({ sessionId }: Props) {
       {canMutate && s.status === SessionStatus.DRAFT ? (
         <div className="space-y-4">
           <p className="text-muted-foreground text-sm leading-relaxed">
-            Next, we&apos;ll check your microphone, then build a personalized set of oral prompts for this run.
-            You&apos;ll answer one prompt at a time in a guided flow (voice-first; support fields are optional).
+            Next, we&apos;ll check your microphone, then build{" "}
+            {formatSessionQuestionCountRange(
+              questionGenerationBounds.min,
+              questionGenerationBounds.max,
+            )}{" "}
+            for this run. You&apos;ll answer one prompt at a time in a guided flow (voice-first; support fields
+            are optional).
           </p>
           <MicrophonePrepCard
             status={micPreflightStatus}

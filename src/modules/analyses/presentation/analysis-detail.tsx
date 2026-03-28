@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { AnalysisStatus, ReadinessLevel } from "@/generated/prisma/enums";
+import { AnalysisStatus } from "@/generated/prisma/enums";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,28 +14,13 @@ import {
 } from "@/components/ui/card";
 import { QueryLoadingHint } from "@/components/shared/query-status";
 import { fetchAnalysisDetail } from "./analyses-api";
-import { ANALYSIS_STATUS_LABEL, READINESS_LABEL } from "./analysis-labels";
-
-type EvalPayload = {
-  overallScore?: number;
-  fluencyScore?: number;
-  technicalAccuracyScore?: number;
-  clientCommunicationScore?: number;
-  professionalismScore?: number;
-  confidenceScore?: number;
-  readinessLevel?: string;
-  strengths?: string[];
-  weaknesses?: string[];
-  recommendations?: string[];
-};
-
-function readEvaluation(payloadJson: unknown): EvalPayload | null {
-  if (!payloadJson || typeof payloadJson !== "object") return null;
-  const o = payloadJson as Record<string, unknown>;
-  const ev = o.evaluation;
-  if (!ev || typeof ev !== "object") return null;
-  return ev as EvalPayload;
-}
+import { ANALYSIS_STATUS_LABEL } from "./analysis-labels";
+import { EnrichedAnalysisSections, LegacyAnalysisSections } from "./analysis-results-sections";
+import {
+  getAnalysisPayloadShape,
+  readEnrichedEvaluation,
+  readLegacyEvaluationV1,
+} from "./evaluation-payload";
 
 type SessionInfo = {
   id: string;
@@ -88,8 +73,11 @@ export function AnalysisDetail({ analysisId }: Props) {
 
   const a = q.data.analysis;
   const session = a.session as SessionInfo;
-  const ev = a.status === AnalysisStatus.COMPLETED ? readEvaluation(a.payloadJson) : null;
+  const shape = a.status === AnalysisStatus.COMPLETED ? getAnalysisPayloadShape(a.payloadJson) : "unknown";
+  const enriched = shape === "enriched_v2" ? readEnrichedEvaluation(a.payloadJson) : null;
+  const legacy = shape === "legacy_v1" ? readLegacyEvaluationV1(a.payloadJson) : null;
   const transcriptFallbackOrdinals = readTranscriptFallbackOrdinals(session.finalizationMetaJson);
+  const showStandaloneSummary = a.summary && !enriched;
 
   return (
     <div className="space-y-6">
@@ -130,7 +118,7 @@ export function AnalysisDetail({ analysisId }: Props) {
         </Card>
       ) : null}
 
-      {a.summary ? (
+      {showStandaloneSummary ? (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Summary</CardTitle>
@@ -157,78 +145,19 @@ export function AnalysisDetail({ analysisId }: Props) {
         </Card>
       ) : null}
 
-      {ev && a.status === AnalysisStatus.COMPLETED ? (
+      {a.status === AnalysisStatus.COMPLETED && enriched ? <EnrichedAnalysisSections data={enriched} /> : null}
+
+      {a.status === AnalysisStatus.COMPLETED && !enriched && legacy ? <LegacyAnalysisSections ev={legacy} /> : null}
+
+      {a.status === AnalysisStatus.COMPLETED && !enriched && !legacy ? (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Scores & feedback</CardTitle>
-            <CardDescription>Structured evaluation from the language model.</CardDescription>
+            <CardTitle className="text-base">Results format</CardTitle>
+            <CardDescription>
+              This analysis completed, but the result could not be read in a supported format. Try &quot;Run
+              evaluation again&quot; from the session page.
+            </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-2 sm:grid-cols-2">
-              {[
-                ["Overall", ev.overallScore],
-                ["Fluency", ev.fluencyScore],
-                ["Technical accuracy", ev.technicalAccuracyScore],
-                ["Client communication", ev.clientCommunicationScore],
-                ["Professionalism", ev.professionalismScore],
-                ["Confidence", ev.confidenceScore],
-              ].map(([label, v]) =>
-                typeof v === "number" ? (
-                  <div
-                    key={String(label)}
-                    className="bg-muted/40 flex justify-between rounded-md border px-2 py-1.5 text-sm"
-                  >
-                    <span className="text-muted-foreground">{label}</span>
-                    <span className="font-medium tabular-nums">{v}</span>
-                  </div>
-                ) : null,
-              )}
-            </div>
-            {ev.readinessLevel ? (
-              <p className="text-sm">
-                <span className="text-muted-foreground">Readiness: </span>
-                <span className="font-medium">
-                  {READINESS_LABEL[ev.readinessLevel as ReadinessLevel] ?? ev.readinessLevel}
-                </span>
-              </p>
-            ) : null}
-            {ev.strengths?.length ? (
-              <div>
-                <p className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-                  Strengths
-                </p>
-                <ul className="list-inside list-disc text-sm">
-                  {ev.strengths.map((s) => (
-                    <li key={s}>{s}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            {ev.weaknesses?.length ? (
-              <div>
-                <p className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-                  Weaknesses
-                </p>
-                <ul className="list-inside list-disc text-sm">
-                  {ev.weaknesses.map((s) => (
-                    <li key={s}>{s}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            {ev.recommendations?.length ? (
-              <div>
-                <p className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-                  Recommendations
-                </p>
-                <ul className="list-inside list-disc text-sm">
-                  {ev.recommendations.map((s) => (
-                    <li key={s}>{s}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </CardContent>
         </Card>
       ) : null}
     </div>
