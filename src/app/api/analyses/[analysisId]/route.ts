@@ -1,6 +1,8 @@
+import { getServerEnv } from "@/lib/config/env";
 import { requirePermission } from "@/lib/auth/guards";
 import { jsonError, jsonOk, type ApiErrorCode } from "@/lib/http/json";
 import { AnalysisServiceError } from "@/modules/analyses/application/analysis-errors";
+import { enrichAnalysisWithPerPromptEvidence } from "@/modules/analyses/application/per-prompt-evidence";
 import { getAnalysisDetailForActor } from "@/modules/analyses/application/analyses-read-service";
 import type { NextRequest } from "next/server";
 
@@ -18,7 +20,8 @@ export async function GET(
   const { analysisId } = await context.params;
 
   try {
-    const analysis = await getAnalysisDetailForActor(gate.user, analysisId);
+    const row = await getAnalysisDetailForActor(gate.user, analysisId);
+    const analysis = enrichAnalysisWithPerPromptEvidence(row, getServerEnv());
     return jsonOk({ analysis });
   } catch (e) {
     if (e instanceof AnalysisServiceError) {

@@ -1,6 +1,8 @@
+import { getServerEnv } from "@/lib/config/env";
 import { requirePermission } from "@/lib/auth/guards";
 import { jsonError, jsonOk, type ApiErrorCode } from "@/lib/http/json";
 import { AnalysisServiceError } from "@/modules/analyses/application/analysis-errors";
+import { enrichAnalysisWithPerPromptEvidence } from "@/modules/analyses/application/per-prompt-evidence";
 import { getLatestAnalysisForSession } from "@/modules/analyses/application/session-analysis-service";
 import type { NextRequest } from "next/server";
 
@@ -24,7 +26,9 @@ export async function GET(
   const { sessionId } = await context.params;
 
   try {
-    const analysis = await getLatestAnalysisForSession(gate.user, sessionId);
+    const row = await getLatestAnalysisForSession(gate.user, sessionId);
+    const env = getServerEnv();
+    const analysis = row ? enrichAnalysisWithPerPromptEvidence(row, env) : null;
     return jsonOk({ analysis });
   } catch (e) {
     if (e instanceof AnalysisServiceError) {

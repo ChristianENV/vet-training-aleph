@@ -1,5 +1,6 @@
 import type { AnalysisStatus } from "@/generated/prisma/enums";
 import { parseApiJsonResponse } from "@/lib/http/api-client";
+import type { PerPromptEvidenceDto } from "@/modules/analyses/application/per-prompt-evidence";
 
 export type SessionAnalysisDto = {
   id: string;
@@ -15,6 +16,8 @@ export type SessionAnalysisDto = {
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Present on read APIs; transcripts + playback URLs from SessionResponse, not payloadJson. */
+  perPromptEvidence?: PerPromptEvidenceDto[];
 };
 
 export type AnalysisListItemDto = {

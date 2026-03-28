@@ -13,7 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { QueryLoadingHint } from "@/components/shared/query-status";
-import { fetchAnalysisDetail } from "./analyses-api";
+import { fetchAnalysisDetail, type SessionAnalysisDto } from "./analyses-api";
 import { ANALYSIS_STATUS_LABEL } from "./analysis-labels";
 import { EnrichedAnalysisSections, LegacyAnalysisSections } from "./analysis-results-sections";
 import {
@@ -71,8 +71,8 @@ export function AnalysisDetail({ analysisId }: Props) {
     );
   }
 
-  const a = q.data.analysis;
-  const session = a.session as SessionInfo;
+  const a = q.data.analysis as SessionAnalysisDto & { session: SessionInfo };
+  const session = a.session;
   const shape = a.status === AnalysisStatus.COMPLETED ? getAnalysisPayloadShape(a.payloadJson) : "unknown";
   const enriched = shape === "enriched_v2" ? readEnrichedEvaluation(a.payloadJson) : null;
   const legacy = shape === "legacy_v1" ? readLegacyEvaluationV1(a.payloadJson) : null;
@@ -145,7 +145,9 @@ export function AnalysisDetail({ analysisId }: Props) {
         </Card>
       ) : null}
 
-      {a.status === AnalysisStatus.COMPLETED && enriched ? <EnrichedAnalysisSections data={enriched} /> : null}
+      {a.status === AnalysisStatus.COMPLETED && enriched ? (
+        <EnrichedAnalysisSections data={enriched} perPromptEvidence={a.perPromptEvidence} />
+      ) : null}
 
       {a.status === AnalysisStatus.COMPLETED && !enriched && legacy ? <LegacyAnalysisSections ev={legacy} /> : null}
 

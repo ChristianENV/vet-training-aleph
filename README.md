@@ -23,6 +23,8 @@ Copy **`.env.example`** to **`.env`** (and optionally **`.env.local`** for machi
 | `OPENAI_EVAL_MODEL` | Optional | Defaults to `gpt-4o-mini` in evaluation code if unset |
 | `APP_ENV` | Optional | e.g. `local` for a workstation. With unset `SESSION_GENERATION_*`, **`APP_ENV=local`** uses **4–4** questions (same as **`NODE_ENV=development`**). Otherwise defaults follow **`SESSION_GENERATION_*`** rules below. |
 | `SESSION_GENERATION_MIN_QUESTIONS` / `SESSION_GENERATION_MAX_QUESTIONS` | Optional | Integer bounds (1–25) for how many oral prompts GPT generates per session. If unset: **`APP_ENV=local` or `NODE_ENV=development`** → **4–4**; **all other cases** (e.g. production, test CI) → **5–10**. Min must be ≤ max. |
+| `R2_*` (see **`.env.example`**) | Optional for uploads | Cloudflare R2 credentials and bucket. Without all required pieces, final audio keeps **dev-placeholder** keys only (nothing uploaded). |
+| `R2_PUBLIC_BASE_URL` or **`R2_PUBLIC_URL`** | Optional for playback | When set, analysis **Per-prompt coaching** can show an **`<audio>`** player for answers stored with provider **`r2`**, using `{publicBase}/{objectKey}`. The bucket (or custom domain) must allow **public read** and **CORS** from your site origin. |
 
 Never commit `.env` with real secrets.
 

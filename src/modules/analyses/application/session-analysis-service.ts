@@ -226,5 +226,5 @@ export async function evaluateCompletedSession(
 
 export async function getLatestAnalysisForSession(actor: AuthenticatedUser, sessionId: string) {
   await getSessionByIdOrThrow(actor, sessionId);
-  return analysisRepo.findLatestAnalysisBySessionId(sessionId);
+  return analysisRepo.findLatestAnalysisForSessionCoaching(sessionId);
 }

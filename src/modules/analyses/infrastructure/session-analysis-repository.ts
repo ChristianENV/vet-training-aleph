@@ -130,19 +130,50 @@ export async function listAnalysesForPrivileged(params: {
   });
 }
 
+/** Session shape for analysis UI: prompts + responses to attach transcripts and public audio URLs. */
+export const analysisSessionCoachingSelect = {
+  id: true,
+  userId: true,
+  title: true,
+  finalizationMetaJson: true,
+  template: { select: { id: true, title: true, slug: true, sessionType: true } },
+  user: { select: { id: true, email: true, name: true } },
+  sessionQuestions: {
+    orderBy: { ordinal: "asc" as const },
+    select: { id: true, ordinal: true, promptText: true },
+  },
+  responses: {
+    orderBy: { ordinal: "asc" as const },
+    select: {
+      sessionQuestionId: true,
+      ordinal: true,
+      transcriptText: true,
+      finalAudioStorageKey: true,
+      finalAudioProvider: true,
+      finalAudioMimeType: true,
+    },
+  },
+} satisfies Prisma.TrainingSessionSelect;
+
 export async function findAnalysisByIdWithSession(analysisId: string) {
   return prisma.sessionAnalysis.findUnique({
     where: { id: analysisId },
     include: {
       session: {
-        select: {
-          id: true,
-          userId: true,
-          title: true,
-          finalizationMetaJson: true,
-          template: { select: { id: true, title: true, slug: true, sessionType: true } },
-          user: { select: { id: true, email: true, name: true } },
-        },
+        select: analysisSessionCoachingSelect,
+      },
+    },
+  });
+}
+
+/** Latest analysis row for a session, with coaching context (for session page analysis panel). */
+export async function findLatestAnalysisForSessionCoaching(sessionId: string) {
+  return prisma.sessionAnalysis.findFirst({
+    where: { sessionId },
+    orderBy: { createdAt: "desc" },
+    include: {
+      session: {
+        select: analysisSessionCoachingSelect,
       },
     },
   });

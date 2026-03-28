@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { deriveOverallScore } from "@/modules/openai/domain/evaluation-helpers";
+import type { PerPromptEvidenceDto } from "@/modules/analyses/application/per-prompt-evidence";
 import type { SessionEvaluationOutput } from "@/modules/openai/schemas/session-evaluation-output";
 import {
   CONFIDENCE_LEVEL_LABEL,
@@ -30,8 +31,21 @@ function ScoreRow({ label, value }: { label: string; value: number | null }) {
   );
 }
 
-export function EnrichedAnalysisSections({ data }: { data: SessionEvaluationOutput }) {
+function snippet(text: string | null | undefined, max = 100): string | null {
+  const t = text?.trim();
+  if (!t) return null;
+  return t.length <= max ? t : `${t.slice(0, max)}…`;
+}
+
+export function EnrichedAnalysisSections({
+  data,
+  perPromptEvidence,
+}: {
+  data: SessionEvaluationOutput;
+  perPromptEvidence?: PerPromptEvidenceDto[] | null;
+}) {
   const overall = deriveOverallScore(data);
+  const byOrdinal = new Map((perPromptEvidence ?? []).map((e) => [e.ordinal, e]));
 
   return (
     <div className="space-y-4">
@@ -232,39 +246,94 @@ export function EnrichedAnalysisSections({ data }: { data: SessionEvaluationOutp
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Per-prompt coaching</CardTitle>
-          <CardDescription>Short notes for each question in your session.</CardDescription>
+          <CardDescription>
+            Your prompt, what you said, and coaching for each question in this session.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
           {data.perQuestionFeedback
             .slice()
             .sort((a, b) => a.ordinal - b.ordinal)
-            .map((q) => (
-              <details
-                key={q.ordinal}
-                className="border-muted group rounded-lg border px-3 py-2 text-sm open:bg-muted/20"
-              >
-                <summary className="cursor-pointer font-medium">
-                  Prompt {q.ordinal}
-                  {q.promptSnippet ? <span className="text-muted-foreground font-normal"> — {q.promptSnippet}</span> : null}
-                </summary>
-                <div className="mt-2 space-y-2 pl-1 leading-relaxed">
-                  <p>
-                    <span className="text-muted-foreground text-xs font-medium uppercase">Worked — </span>
-                    {q.whatWorked}
-                  </p>
-                  <p>
-                    <span className="text-muted-foreground text-xs font-medium uppercase">Coach notes — </span>
-                    {q.coachNotes}
-                  </p>
-                  {q.improvedExample ? (
-                    <p className="bg-muted/50 rounded-md p-2 text-xs whitespace-pre-wrap">
-                      <span className="text-muted-foreground font-medium">Example phrasing — </span>
-                      {q.improvedExample}
-                    </p>
-                  ) : null}
-                </div>
-              </details>
-            ))}
+            .map((q) => {
+              const ev = byOrdinal.get(q.ordinal);
+              const headline =
+                snippet(ev?.promptText, 120) ?? q.promptSnippet ?? `Question ${q.ordinal}`;
+              return (
+                <details
+                  key={q.ordinal}
+                  className="border-muted group rounded-lg border px-3 py-2 text-sm open:bg-muted/20"
+                >
+                  <summary className="cursor-pointer font-medium">
+                    Prompt {q.ordinal}
+                    <span className="text-muted-foreground font-normal"> — {headline}</span>
+                  </summary>
+                  <div className="mt-2 space-y-3 pl-1 leading-relaxed">
+                    {ev?.promptText ? (
+                      <div>
+                        <p className="text-muted-foreground mb-1 text-xs font-medium uppercase tracking-wide">
+                          Full prompt
+                        </p>
+                        <p className="text-foreground/90 whitespace-pre-wrap text-sm">{ev.promptText}</p>
+                      </div>
+                    ) : null}
+
+                    {ev?.usedWrittenNotesFallback ? (
+                      <p className="text-muted-foreground border-amber-500/30 bg-amber-500/5 rounded-md border px-2 py-1.5 text-xs">
+                        For this prompt, scoring used your written support notes instead of a processed voice
+                        recording.
+                      </p>
+                    ) : null}
+
+                    {ev?.audioPlaybackUrl ? (
+                      <div>
+                        <p className="text-muted-foreground mb-1 text-xs font-medium uppercase tracking-wide">
+                          Your answer (audio)
+                        </p>
+                        <audio
+                          className="h-9 w-full max-w-md"
+                          controls
+                          preload="metadata"
+                          src={ev.audioPlaybackUrl}
+                        />
+                      </div>
+                    ) : ev?.hasStoredAudio ? (
+                      <p className="text-muted-foreground text-xs">
+                        Your voice answer is saved, but playback in the browser isn’t available here (for example,
+                        if a public listening link isn’t set up yet).
+                      </p>
+                    ) : null}
+
+                    {ev?.transcriptText ? (
+                      <div>
+                        <p className="text-muted-foreground mb-1 text-xs font-medium uppercase tracking-wide">
+                          Transcript
+                        </p>
+                        <p className="text-muted-foreground whitespace-pre-wrap text-sm leading-relaxed">
+                          {ev.transcriptText}
+                        </p>
+                      </div>
+                    ) : null}
+
+                    <div className="border-muted/60 space-y-2 border-t pt-2">
+                      <p>
+                        <span className="text-muted-foreground text-xs font-medium uppercase">Worked — </span>
+                        {q.whatWorked}
+                      </p>
+                      <p>
+                        <span className="text-muted-foreground text-xs font-medium uppercase">Coach notes — </span>
+                        {q.coachNotes}
+                      </p>
+                      {q.improvedExample ? (
+                        <p className="bg-muted/50 rounded-md p-2 text-xs whitespace-pre-wrap">
+                          <span className="text-muted-foreground font-medium">Example phrasing — </span>
+                          {q.improvedExample}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                </details>
+              );
+            })}
         </CardContent>
       </Card>
 
