@@ -2,7 +2,10 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMicrophonePreflight } from "@/hooks/use-microphone-preflight";
+import type { OralRecorderResult } from "@/hooks/use-oral-recorder";
 import { SessionStatus } from "@/generated/prisma/enums";
 import { QueryLoadingHint } from "@/components/shared/query-status";
 import { Badge } from "@/components/ui/badge";
@@ -14,45 +17,42 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
 import { useSessionUser } from "@/hooks/use-session-user";
 import { roleHasPermission } from "@/lib/auth/permissions";
-import { cn } from "@/lib/utils";
+import { ApiRequestError } from "@/lib/http/api-client";
 import { SessionAnalysisPanel } from "@/modules/analyses/presentation/session-analysis-panel";
 import {
   cancelSessionRequest,
-  completeSessionRequest,
   fetchSessionDetail,
+  finalizeSessionRequest,
   startSessionRequest,
   submitSessionResponseRequest,
-  type SessionResponseRow,
-  type TemplateQuestionRow,
   type TrainingSessionRow,
 } from "./sessions-api";
+import { MicrophonePrepCard } from "./microphone-prep-card";
+import { OralAssessmentWizard } from "./oral-assessment-wizard";
 import { SESSION_STATUS_LABEL, SESSION_TYPE_LABEL } from "./session-labels";
+import {
+  hasUnsavedLocalVoiceTake,
+  indexOfFirstUnsatisfied,
+  responseHasContent,
+  type LocalVoiceTake,
+} from "./session-wizard-helpers";
 
-function responseHasContent(r: { transcriptText: string | null; audioUrl: string | null } | undefined) {
-  if (!r) return false;
-  return Boolean(r.transcriptText?.trim() || r.audioUrl?.trim());
-}
-
-/** Strict ordinal order: index of first question without transcript/audio, or -1 if all satisfied. */
-function indexOfFirstUnsatisfied(
-  questions: TemplateQuestionRow[],
-  responseByQuestion: Map<string, SessionResponseRow>,
-): number {
-  const ordered = [...questions].sort((a, b) => a.ordinal - b.ordinal);
-  for (let i = 0; i < ordered.length; i++) {
-    const r = responseByQuestion.get(ordered[i].id);
-    if (!responseHasContent(r)) return i;
+function finalizeFinishErrorMessage(error: unknown): string {
+  if (error instanceof ApiRequestError && error.status === 503 && error.code === "SERVICE_UNAVAILABLE") {
+    return "Your answers were saved, but scoring is not available right now. Try finishing again in a moment, or use “Run evaluation again” below.";
   }
-  return -1;
+  if (error instanceof ApiRequestError && error.status === 422 && error.code === "FINALIZE_RECOVERABLE") {
+    return error.message;
+  }
+  return error instanceof Error ? error.message : "Could not finish assessment";
 }
 
 function canCompleteSession(session: TrainingSessionRow): boolean {
-  const qs = session.template?.questions ?? [];
+  const qs = session.sessionQuestions ?? [];
   const required = qs.filter((q) => q.isRequired);
-  const byId = new Map((session.responses ?? []).map((r) => [r.templateQuestionId, r]));
+  const byId = new Map((session.responses ?? []).map((r) => [r.sessionQuestionId, r]));
   return required.every((q) => {
     const r = byId.get(q.id);
     return r && responseHasContent(r);
@@ -64,15 +64,24 @@ type Props = {
 };
 
 export function SessionDetail({ sessionId }: Props) {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const { data: auth } = useSessionUser();
-  const [draft, setDraft] = useState({ transcript: "", durationSec: "", audioUrl: "" });
-  /** Selected question in the answer panel (current or an earlier ordinal for edits). */
+  const [localByQuestion, setLocalByQuestion] = useState<Map<string, LocalVoiceTake>>(() => new Map());
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
+  const localByQuestionRef = useRef(localByQuestion);
+  localByQuestionRef.current = localByQuestion;
 
   const sessionQuery = useQuery({
     queryKey: ["training-session", sessionId],
     queryFn: () => fetchSessionDetail(sessionId),
+    refetchInterval: (q) => {
+      const data = q.state.data as { session?: { status?: SessionStatus } } | undefined;
+      const st = data?.session?.status;
+      if (st === SessionStatus.GENERATING_QUESTIONS) return 2000;
+      if (st === SessionStatus.SAVING_FINAL_RESPONSES || st === SessionStatus.ANALYZING) return 2000;
+      return false;
+    },
   });
 
   const role = auth?.user?.role;
@@ -89,29 +98,23 @@ export function SessionDetail({ sessionId }: Props) {
     session?.status === SessionStatus.COMPLETED;
   const canViewAnalysis = !!role && roleHasPermission(role, "analyses:view");
 
-  const questions = session?.template?.questions ?? [];
+  const questions = session?.sessionQuestions ?? [];
   const questionsOrdered = useMemo(
     () => [...questions].sort((a, b) => a.ordinal - b.ordinal),
     [questions],
   );
 
   const responseByQuestion = useMemo(() => {
-    return new Map((session?.responses ?? []).map((r) => [r.templateQuestionId, r]));
+    return new Map((session?.responses ?? []).map((r) => [r.sessionQuestionId, r]));
   }, [session?.responses]);
-
-  const allQuestionsAnswered =
-    !!progress &&
-    progress.totalQuestions > 0 &&
-    progress.answeredCount >= progress.totalQuestions;
 
   const firstUnsatisfiedIdx = useMemo(
     () => indexOfFirstUnsatisfied(questions, responseByQuestion),
     [questions, responseByQuestion],
   );
 
-  /** Locked = future ordinal while there is still an unanswered step (strict flow). */
   const isQuestionLocked = useCallback(
-    (q: TemplateQuestionRow) => {
+    (q: (typeof questionsOrdered)[0]) => {
       if (session?.status !== SessionStatus.ACTIVE) return false;
       if (firstUnsatisfiedIdx < 0) return false;
       const idx = questionsOrdered.findIndex((x) => x.id === q.id);
@@ -142,20 +145,13 @@ export function SessionDetail({ sessionId }: Props) {
   const currentQuestion = questionsOrdered.find((q) => q.id === effectiveQuestionId) ?? null;
 
   useEffect(() => {
-    if (!effectiveQuestionId) return;
-    const r = responseByQuestion.get(effectiveQuestionId);
-    if (r) {
-      setDraft({
-        transcript: r.transcriptText ?? "",
-        durationSec: r.durationSec != null ? String(r.durationSec) : "",
-        audioUrl: r.audioUrl ?? "",
-      });
-    } else {
-      setDraft({ transcript: "", durationSec: "", audioUrl: "" });
-    }
-  }, [effectiveQuestionId, responseByQuestion]);
+    return () => {
+      for (const t of localByQuestionRef.current.values()) {
+        URL.revokeObjectURL(t.objectUrl);
+      }
+    };
+  }, []);
 
-  /** Clear selection if user advanced and had picked a now-locked question. */
   useEffect(() => {
     if (!selectedQuestionId || session?.status !== SessionStatus.ACTIVE) return;
     if (firstUnsatisfiedIdx < 0) return;
@@ -164,6 +160,39 @@ export function SessionDetail({ sessionId }: Props) {
       setSelectedQuestionId(null);
     }
   }, [firstUnsatisfiedIdx, questionsOrdered, session?.status, selectedQuestionId]);
+
+  const localTakeForEffective = effectiveQuestionId
+    ? localByQuestion.get(effectiveQuestionId) ?? null
+    : null;
+
+  const handleVoiceTakeReady = useCallback(
+    (result: OralRecorderResult) => {
+      if (!effectiveQuestionId) return;
+      setLocalByQuestion((prev) => {
+        const next = new Map(prev);
+        const old = next.get(effectiveQuestionId);
+        if (old?.objectUrl) URL.revokeObjectURL(old.objectUrl);
+        const objectUrl = URL.createObjectURL(result.blob);
+        next.set(effectiveQuestionId, {
+          ...result,
+          objectUrl,
+        });
+        return next;
+      });
+    },
+    [effectiveQuestionId],
+  );
+
+  const discardVoiceTakeForEffective = useCallback(() => {
+    if (!effectiveQuestionId) return;
+    setLocalByQuestion((prev) => {
+      const next = new Map(prev);
+      const old = next.get(effectiveQuestionId);
+      if (old?.objectUrl) URL.revokeObjectURL(old.objectUrl);
+      next.delete(effectiveQuestionId);
+      return next;
+    });
+  }, [effectiveQuestionId]);
 
   const invalidate = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ["training-session", sessionId] });
@@ -177,25 +206,41 @@ export function SessionDetail({ sessionId }: Props) {
     window.setTimeout(() => setActionBanner(null), 3800);
   }, []);
 
+  const {
+    status: micPreflightStatus,
+    detailMessage: micPreflightDetail,
+    checkMicrophone,
+    reset: resetMicPreflight,
+  } = useMicrophonePreflight();
+
+  useEffect(() => {
+    resetMicPreflight();
+  }, [sessionId, resetMicPreflight]);
+
+  useEffect(() => {
+    if (session?.status !== SessionStatus.DRAFT) {
+      resetMicPreflight();
+    }
+  }, [session?.status, resetMicPreflight]);
+
   const startMut = useMutation({
     mutationFn: () => startSessionRequest(sessionId),
     onSuccess: () => {
       invalidate();
-      flashBanner("Session started — answer each question in order before moving on.");
+      flashBanner("Questions ready — work through each oral prompt in order.");
     },
   });
 
   const responseMut = useMutation({
     mutationFn: () => {
-      if (!currentQuestion) throw new Error("No question selected");
-      const durationRaw = draft.durationSec.trim();
-      const durationParsed = durationRaw ? Number(durationRaw) : undefined;
+      if (!currentQuestion || !effectiveQuestionId) throw new Error("No question selected");
+      const take = localByQuestion.get(effectiveQuestionId);
+      if (!take) throw new Error("Record your answer before saving");
       return submitSessionResponseRequest(sessionId, {
-        templateQuestionId: currentQuestion.id, // effectiveQuestionId; server enforces order
-        transcriptText: draft.transcript.trim() || undefined,
-        audioUrl: draft.audioUrl.trim() || undefined,
-        durationSec:
-          durationParsed !== undefined && Number.isFinite(durationParsed) ? durationParsed : undefined,
+        sessionQuestionId: currentQuestion.id,
+        finalAudioDurationSec: Math.max(1, Math.round(take.durationSec)),
+        finalAudioMimeType: take.mimeType,
+        finalAudioBytes: take.byteLength,
       });
     },
     onSuccess: () => {
@@ -206,11 +251,31 @@ export function SessionDetail({ sessionId }: Props) {
   });
 
   const completeMut = useMutation({
-    mutationFn: () => completeSessionRequest(sessionId),
-    onSuccess: () => {
+    mutationFn: () => {
+      if (!session) throw new Error("Session not loaded");
+      const fd = new FormData();
+      const required = (session.sessionQuestions ?? []).filter((q) => q.isRequired);
+      const byResp = new Map((session.responses ?? []).map((r) => [r.sessionQuestionId, r]));
+      for (const q of required) {
+        const r = byResp.get(q.id);
+        const take = localByQuestion.get(q.id);
+        if (!r?.finalAudioStorageKey?.trim() && take?.blob) {
+          fd.append(`audio_${q.id}`, take.blob, `question-${q.ordinal}.webm`);
+        }
+      }
+      return finalizeSessionRequest(sessionId, fd);
+    },
+    onSuccess: (data) => {
       invalidate();
       void queryClient.invalidateQueries({ queryKey: ["session-analysis", sessionId] });
-      flashBanner("Session complete. You can run AI evaluation when ready.");
+      void queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
+      void queryClient.invalidateQueries({ queryKey: ["progress-summary"] });
+      const analysisId = data.evaluation?.analysis?.id;
+      if (analysisId) {
+        router.push(`/analyses/${analysisId}`);
+      } else {
+        flashBanner("Your assessment is saved. Check this page for results or the analyses list.");
+      }
     },
   });
 
@@ -249,13 +314,41 @@ export function SessionDetail({ sessionId }: Props) {
   }
 
   const s = session;
+  const savedForEffective = effectiveQuestionId ? responseByQuestion.get(effectiveQuestionId) : undefined;
+  const attemptsExhausted =
+    !!savedForEffective && savedForEffective.attemptCount >= savedForEffective.maxAttempts;
+
+  const hasUnsavedLocalTake = localTakeForEffective
+    ? hasUnsavedLocalVoiceTake(localTakeForEffective, savedForEffective)
+    : false;
+
   const canSubmitAnswer =
     canMutate &&
     s.status === SessionStatus.ACTIVE &&
     !!currentQuestion &&
-    (draft.transcript.trim().length > 0 || draft.audioUrl.trim().length > 0);
+    !!localTakeForEffective &&
+    !attemptsExhausted &&
+    hasUnsavedLocalTake;
+
+  const saveBlockedReason = attemptsExhausted
+    ? "No attempts remaining for this prompt."
+    : !localTakeForEffective
+      ? "Record your answer before saving."
+      : !hasUnsavedLocalTake
+        ? "Save when you have a new or updated recording."
+        : null;
 
   const showComplete = canMutate && s.status === SessionStatus.ACTIVE && canCompleteSession(s);
+
+  const showWizard = s.status === SessionStatus.ACTIVE && questionsOrdered.length > 0;
+
+  const responseError =
+    responseMut.isError && responseMut.error instanceof Error ? responseMut.error.message : null;
+
+  const finalizeError =
+    completeMut.isError && canMutate && s.status === SessionStatus.ACTIVE
+      ? finalizeFinishErrorMessage(completeMut.error)
+      : null;
 
   return (
     <div className="space-y-8">
@@ -268,39 +361,90 @@ export function SessionDetail({ sessionId }: Props) {
         </p>
       ) : null}
 
+      {completeMut.isPending ? (
+        <p
+          className="bg-muted/60 text-foreground rounded-lg border px-3 py-2 text-sm"
+          role="status"
+        >
+          Saving your responses and preparing your results. This may take a minute—please keep this page open.
+        </p>
+      ) : null}
+
+      {s.status === SessionStatus.SAVING_FINAL_RESPONSES || s.status === SessionStatus.ANALYZING ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              {s.status === SessionStatus.SAVING_FINAL_RESPONSES
+                ? "Saving your responses"
+                : "Analyzing your answers"}
+            </CardTitle>
+            <CardDescription>
+              {s.status === SessionStatus.SAVING_FINAL_RESPONSES
+                ? "We are finishing your answers securely. Please keep this window open."
+                : "We are preparing your score and feedback. This usually completes within a minute."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <QueryLoadingHint>Please wait…</QueryLoadingHint>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {!isOwner ? (
         <p className="text-muted-foreground rounded-lg border border-dashed p-3 text-sm">
           You are viewing another learner&apos;s session (read-only).
         </p>
       ) : null}
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h2 className="text-xl font-semibold tracking-tight">
-            {s.title ?? s.template?.title ?? "Practice session"}
-          </h2>
-          <p className="text-muted-foreground text-sm">
-            {s.template ? SESSION_TYPE_LABEL[s.template.sessionType] : "Session"} ·{" "}
-            {new Date(s.createdAt).toLocaleString()}
-          </p>
+      {s.status === SessionStatus.GENERATING_QUESTIONS ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Preparing your oral prompts</CardTitle>
+            <CardDescription>
+              We are generating a fresh set of between five and ten spoken prompts for this topic, informed by
+              your past practice on the same subject when available. This usually takes a few seconds.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <QueryLoadingHint>Please wait…</QueryLoadingHint>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {!showWizard ? (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-xl font-semibold tracking-tight">
+              {s.title ?? s.template?.title ?? "Oral assessment"}
+            </h2>
+            <p className="text-muted-foreground text-sm">
+              {s.template ? SESSION_TYPE_LABEL[s.template.sessionType] : "Session"} ·{" "}
+              {new Date(s.createdAt).toLocaleString()}
+            </p>
+          </div>
+          <Badge variant="secondary">{SESSION_STATUS_LABEL[s.status]}</Badge>
         </div>
-        <Badge variant="secondary">{SESSION_STATUS_LABEL[s.status]}</Badge>
-      </div>
+      ) : null}
 
       {canMutate && s.status === SessionStatus.DRAFT ? (
-        <div className="space-y-2">
+        <div className="space-y-4">
+          <p className="text-muted-foreground text-sm leading-relaxed">
+            Next, we&apos;ll check your microphone, then build a personalized set of oral prompts for this run.
+            You&apos;ll answer one prompt at a time in a guided flow (voice-first; support fields are optional).
+          </p>
+          <MicrophonePrepCard
+            status={micPreflightStatus}
+            detailMessage={micPreflightDetail}
+            checking={micPreflightStatus === "checking"}
+            starting={startMut.isPending}
+            onCheckMicrophone={() => void checkMicrophone()}
+            onContinue={() => startMut.mutate()}
+          />
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
-              disabled={startMut.isPending}
-              onClick={() => startMut.mutate()}
-            >
-              {startMut.isPending ? "Starting…" : "Start session"}
-            </Button>
-            <Button
-              type="button"
               variant="outline"
-              disabled={cancelMut.isPending}
+              disabled={cancelMut.isPending || startMut.isPending}
               onClick={() => cancelMut.mutate()}
             >
               Cancel
@@ -316,15 +460,64 @@ export function SessionDetail({ sessionId }: Props) {
               {cancelMut.error instanceof Error ? cancelMut.error.message : "Cancel failed"}
             </p>
           ) : null}
-          <p className="text-muted-foreground text-sm">
-            {questions.length} question{questions.length === 1 ? "" : "s"} in this template. After you
-            start, use the transcript field for each prompt (recommended for demos). Optional: paste an
-            external audio URL — there is no in-app recorder yet.
-          </p>
         </div>
       ) : null}
 
-      {canMutate && s.status === SessionStatus.ACTIVE ? (
+      {responseError ? (
+        <p className="text-destructive border-destructive/30 bg-destructive/5 rounded-lg border px-3 py-2 text-sm">
+          {responseError}
+        </p>
+      ) : null}
+      {finalizeError ? (
+        <p
+          className="text-destructive border-destructive/30 bg-destructive/5 rounded-lg border px-3 py-2 text-sm"
+          role="alert"
+        >
+          {finalizeError}
+        </p>
+      ) : null}
+      {showWizard && cancelMut.isError ? (
+        <p className="text-destructive border-destructive/30 bg-destructive/5 rounded-lg border px-3 py-2 text-sm">
+          {cancelMut.error instanceof Error ? cancelMut.error.message : "Cancel failed"}
+        </p>
+      ) : null}
+
+      {showWizard ? (
+        <OralAssessmentWizard
+          session={s}
+          progress={progress}
+          questionsOrdered={questionsOrdered}
+          responseByQuestion={responseByQuestion}
+          effectiveQuestionId={effectiveQuestionId}
+          currentQuestion={currentQuestion}
+          firstUnsatisfiedIdx={firstUnsatisfiedIdx}
+          isQuestionLocked={isQuestionLocked}
+          onSelectQuestion={(id) => setSelectedQuestionId(id)}
+          localTake={localTakeForEffective}
+          onVoiceTakeReady={handleVoiceTakeReady}
+          onDiscardVoiceTake={discardVoiceTakeForEffective}
+          canMutate={canMutate}
+          onSaveAnswer={() => responseMut.mutate()}
+          responseMutPending={responseMut.isPending}
+          canSubmitAnswer={canSubmitAnswer}
+          saveBlockedReason={saveBlockedReason}
+          hasUnsavedLocalTake={hasUnsavedLocalTake}
+          showComplete={showComplete}
+          onComplete={() => completeMut.mutate()}
+          completeMutPending={completeMut.isPending}
+          onCancel={() => cancelMut.mutate()}
+          cancelMutPending={cancelMut.isPending}
+        />
+      ) : null}
+
+      {s.status === SessionStatus.ACTIVE && questionsOrdered.length === 0 ? (
+        <p className="text-muted-foreground text-sm">
+          This session is active but has no prompts yet. Try refreshing, or contact support if the problem
+          persists.
+        </p>
+      ) : null}
+
+      {canMutate && s.status === SessionStatus.ACTIVE && !showWizard ? (
         <div className="space-y-2">
           <div className="flex flex-wrap gap-2">
             <Button
@@ -333,7 +526,7 @@ export function SessionDetail({ sessionId }: Props) {
               disabled={completeMut.isPending || !showComplete}
               onClick={() => completeMut.mutate()}
             >
-              {completeMut.isPending ? "Completing…" : "Complete session"}
+              {completeMut.isPending ? "Saving…" : "Finish assessment"}
             </Button>
             <Button
               type="button"
@@ -344,180 +537,7 @@ export function SessionDetail({ sessionId }: Props) {
               Cancel
             </Button>
           </div>
-          {!showComplete ? (
-            <p className="text-muted-foreground text-sm">
-              Answer all required questions with a transcript (and optionally an external audio URL) before
-              completing.
-            </p>
-          ) : null}
-          {completeMut.isError ? (
-            <p className="text-destructive text-sm">
-              {completeMut.error instanceof Error ? completeMut.error.message : "Complete failed"}
-            </p>
-          ) : null}
-          {cancelMut.isError ? (
-            <p className="text-destructive text-sm">
-              {cancelMut.error instanceof Error ? cancelMut.error.message : "Cancel failed"}
-            </p>
-          ) : null}
         </div>
-      ) : null}
-
-      {s.status === SessionStatus.ACTIVE && progress.totalQuestions > 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Progress</CardTitle>
-            <CardDescription>
-              {progress.answeredCount} of {progress.totalQuestions} with answers ·{" "}
-              {progress.completionPercent}% complete · questions are answered in order
-              {allQuestionsAnswered ? (
-                <span className="mt-1 block">
-                  All prompts answered — you can review or edit any, then complete the session.
-                </span>
-              ) : null}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="bg-muted h-2 w-full overflow-hidden rounded-full">
-              <div
-                className="bg-primary h-full transition-all"
-                style={{ width: `${Math.min(100, progress.completionPercent)}%` }}
-              />
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {questions.length > 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Questions</CardTitle>
-            <CardDescription>
-              Answer in order. Future steps stay locked until prior questions have content (usually a
-              transcript). You can go back to edit earlier answers.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {questionsOrdered.map((q) => {
-              const answered = responseHasContent(responseByQuestion.get(q.id));
-              const locked = isQuestionLocked(q);
-              const isCurrent =
-                s.status === SessionStatus.ACTIVE &&
-                firstUnsatisfiedIdx >= 0 &&
-                progress?.currentQuestionId === q.id;
-              const active = q.id === effectiveQuestionId;
-              const statusLabel = locked ? "Locked" : isCurrent ? "Current" : answered ? "Answered" : "Open";
-              return (
-                <button
-                  key={q.id}
-                  type="button"
-                  disabled={locked}
-                  onClick={() => {
-                    if (!locked) setSelectedQuestionId(q.id);
-                  }}
-                  className={cn(
-                    "flex w-full items-start justify-between gap-3 rounded-lg border px-3 py-2 text-left text-sm transition-colors",
-                    locked && "cursor-not-allowed opacity-60",
-                    active ? "border-primary bg-primary/5" : !locked && "hover:bg-muted/50",
-                  )}
-                >
-                  <div>
-                    <p className="font-medium">
-                      {q.ordinal}. {q.promptText}
-                    </p>
-                    {q.helpText ? (
-                      <p className="text-muted-foreground mt-1 text-xs">{q.helpText}</p>
-                    ) : null}
-                  </div>
-                  <Badge variant={locked ? "outline" : answered ? "secondary" : "outline"}>{statusLabel}</Badge>
-                </button>
-              );
-            })}
-          </CardContent>
-        </Card>
-      ) : (
-        <p className="text-muted-foreground text-sm">This template has no questions configured.</p>
-      )}
-
-      {canMutate && s.status === SessionStatus.ACTIVE && currentQuestion ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">
-              Question {currentQuestion.ordinal}
-              {s.status === SessionStatus.ACTIVE &&
-              firstUnsatisfiedIdx >= 0 &&
-              progress?.currentQuestionId === currentQuestion.id ? (
-                <span className="text-primary font-normal"> · Current</span>
-              ) : s.status === SessionStatus.ACTIVE && firstUnsatisfiedIdx >= 0 ? (
-                <span className="text-muted-foreground font-normal"> · Edit earlier answer</span>
-              ) : s.status === SessionStatus.ACTIVE && firstUnsatisfiedIdx < 0 ? (
-                <span className="text-muted-foreground font-normal"> · Review before completing</span>
-              ) : null}
-              {currentQuestion.isRequired ? (
-                <span className="text-muted-foreground font-normal"> · Required</span>
-              ) : null}
-            </CardTitle>
-            <CardDescription className="whitespace-pre-wrap">{currentQuestion.promptText}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {currentQuestion.helpText ? (
-              <p className="text-muted-foreground text-sm">{currentQuestion.helpText}</p>
-            ) : null}
-            <div className="grid gap-2">
-              <Label htmlFor="answer-transcript">Transcript (primary — use this in demos)</Label>
-              <textarea
-                id="answer-transcript"
-                rows={5}
-                value={draft.transcript}
-                onChange={(e) => setDraft((d) => ({ ...d, transcript: e.target.value }))}
-                className={cn(
-                  "border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[120px] w-full rounded-lg border px-2.5 py-2 text-sm transition-colors outline-none focus-visible:ring-3 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
-                )}
-                placeholder="Type or paste your answer as if you spoke it aloud."
-              />
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <div className="grid gap-1.5">
-                <Label htmlFor="answer-duration">Duration (seconds, optional)</Label>
-                <input
-                  id="answer-duration"
-                  type="number"
-                  min={0}
-                  className="border-input bg-background h-8 w-full rounded-lg border px-2 text-sm"
-                  value={draft.durationSec}
-                  onChange={(e) => setDraft((d) => ({ ...d, durationSec: e.target.value }))}
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="answer-audio-url">External audio URL (optional)</Label>
-                <input
-                  id="answer-audio-url"
-                  type="url"
-                  className="border-input bg-background h-8 w-full rounded-lg border px-2 text-sm"
-                  value={draft.audioUrl}
-                  onChange={(e) => setDraft((d) => ({ ...d, audioUrl: e.target.value }))}
-                  placeholder="https://…"
-                  title="Link to audio hosted elsewhere — not recorded in-app"
-                />
-                <p className="text-muted-foreground text-xs">
-                  Metadata only: no upload or recording in this MVP.
-                </p>
-              </div>
-            </div>
-            <Button
-              type="button"
-              disabled={responseMut.isPending || !canSubmitAnswer}
-              onClick={() => responseMut.mutate()}
-            >
-              {responseMut.isPending ? "Saving…" : "Save answer"}
-            </Button>
-            {responseMut.isError ? (
-              <p className="text-destructive text-sm">
-                {responseMut.error instanceof Error ? responseMut.error.message : "Save failed"}
-              </p>
-            ) : null}
-          </CardContent>
-        </Card>
       ) : null}
 
       <SessionAnalysisPanel

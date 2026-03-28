@@ -67,9 +67,8 @@ export function SessionsHome({ actorRole }: Props) {
         <div>
           <h2 className="text-lg font-medium">Templates</h2>
           <p className="text-muted-foreground text-sm">
-            Each template is an ordered list of prompts. Create a run, open it, press <strong>Start session</strong>,
-            then type a <strong>transcript</strong> for each question in order. Optional: link an external{" "}
-            <strong>audio URL</strong> — in-app recording is not available in this MVP.
+            Pick a topic to start a guided oral run. When you begin, we generate a fresh set of spoken prompts for
+            that session. Work through them one at a time (voice-first; optional support transcript for practice).
           </p>
         </div>
         {templatesQuery.isLoading ? (
@@ -99,8 +98,7 @@ export function SessionsHome({ actorRole }: Props) {
                     {SESSION_TYPE_LABEL[t.sessionType]}
                     {t.description ? ` · ${t.description}` : null}
                     {" · "}
-                    {t._count?.questions ?? t.questions?.length ?? 0} question
-                    {(t._count?.questions ?? t.questions?.length ?? 0) === 1 ? "" : "s"}
+                    Questions are generated when you start a session.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>

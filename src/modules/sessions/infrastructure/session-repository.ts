@@ -2,22 +2,38 @@ import type { Prisma } from "@/generated/prisma/client";
 import { InputMode, SessionStatus } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/db/prisma";
 
-export const templateQuestionPublicSelect = {
+const PRIOR_SESSIONS_FOR_TOPIC = 8;
+const MAX_PRIOR_PROMPTS = 24;
+
+export const sessionQuestionPublicSelect = {
   id: true,
   ordinal: true,
   promptText: true,
   helpText: true,
   expectedDurationSec: true,
+  suggestedDurationSec: true,
+  maxDurationSec: true,
   isRequired: true,
-} satisfies Prisma.SessionTemplateQuestionSelect;
+  generatedByModel: true,
+  sourceTopic: true,
+} satisfies Prisma.SessionQuestionSelect;
 
 export const sessionResponsePublicSelect = {
   id: true,
-  templateQuestionId: true,
+  sessionQuestionId: true,
   ordinal: true,
-  audioUrl: true,
   transcriptText: true,
-  durationSec: true,
+  transcriptStatus: true,
+  transcriptProvider: true,
+  attemptCount: true,
+  maxAttempts: true,
+  finalAudioStorageKey: true,
+  finalAudioProvider: true,
+  finalAudioMimeType: true,
+  finalAudioBytes: true,
+  finalAudioDurationSec: true,
+  finalAudioCodec: true,
+  audioUploadedAt: true,
   answeredAt: true,
 } satisfies Prisma.SessionResponseSelect;
 
@@ -42,6 +58,7 @@ export const sessionListSelect = {
 
 export const sessionDetailSelect = {
   ...sessionListSelect,
+  finalizationMetaJson: true,
   template: {
     select: {
       id: true,
@@ -49,11 +66,11 @@ export const sessionDetailSelect = {
       title: true,
       sessionType: true,
       description: true,
-      questions: {
-        orderBy: { ordinal: "asc" },
-        select: templateQuestionPublicSelect,
-      },
     },
+  },
+  sessionQuestions: {
+    orderBy: { ordinal: "asc" },
+    select: sessionQuestionPublicSelect,
   },
   responses: {
     orderBy: { ordinal: "asc" },
@@ -134,35 +151,82 @@ export async function touchSessionActivity(sessionId: string) {
   });
 }
 
+export async function updateTrainingSessionFinalizationMeta(
+  sessionId: string,
+  meta: Prisma.InputJsonValue,
+) {
+  return prisma.trainingSession.update({
+    where: { id: sessionId },
+    data: { finalizationMetaJson: meta },
+  });
+}
+
+export async function updateSessionResponseFinalAudio(input: {
+  sessionId: string;
+  sessionQuestionId: string;
+  finalAudioStorageKey: string;
+  finalAudioProvider: string;
+  finalAudioMimeType: string | null;
+  finalAudioBytes: number | null;
+}) {
+  return prisma.sessionResponse.update({
+    where: {
+      sessionId_sessionQuestionId: {
+        sessionId: input.sessionId,
+        sessionQuestionId: input.sessionQuestionId,
+      },
+    },
+    data: {
+      finalAudioStorageKey: input.finalAudioStorageKey,
+      finalAudioProvider: input.finalAudioProvider,
+      finalAudioMimeType: input.finalAudioMimeType,
+      finalAudioBytes: input.finalAudioBytes,
+      audioUploadedAt: new Date(),
+    },
+    select: sessionResponsePublicSelect,
+  });
+}
+
 export async function upsertSessionResponse(input: {
   sessionId: string;
-  templateQuestionId: string;
+  sessionQuestionId: string;
   ordinal: number;
-  audioUrl: string | null;
   transcriptText: string | null;
-  durationSec: number | null;
+  transcriptStatus?: Prisma.SessionResponseCreateInput["transcriptStatus"];
+  finalAudioStorageKey: string | null;
+  finalAudioDurationSec: number | null;
+  finalAudioMimeType?: string | null;
+  finalAudioBytes?: number | null;
 }) {
   return prisma.sessionResponse.upsert({
     where: {
-      sessionId_templateQuestionId: {
+      sessionId_sessionQuestionId: {
         sessionId: input.sessionId,
-        templateQuestionId: input.templateQuestionId,
+        sessionQuestionId: input.sessionQuestionId,
       },
     },
     create: {
       sessionId: input.sessionId,
-      templateQuestionId: input.templateQuestionId,
+      sessionQuestionId: input.sessionQuestionId,
       ordinal: input.ordinal,
-      audioUrl: input.audioUrl,
       transcriptText: input.transcriptText,
-      durationSec: input.durationSec,
+      transcriptStatus: input.transcriptStatus,
+      finalAudioStorageKey: input.finalAudioStorageKey,
+      finalAudioDurationSec: input.finalAudioDurationSec,
+      finalAudioMimeType: input.finalAudioMimeType ?? null,
+      finalAudioBytes: input.finalAudioBytes ?? null,
+      attemptCount: 1,
       answeredAt: new Date(),
     },
     update: {
       ordinal: input.ordinal,
-      audioUrl: input.audioUrl,
       transcriptText: input.transcriptText,
-      durationSec: input.durationSec,
+      transcriptStatus: input.transcriptStatus,
+      finalAudioStorageKey: input.finalAudioStorageKey,
+      finalAudioDurationSec: input.finalAudioDurationSec,
+      finalAudioMimeType: input.finalAudioMimeType ?? null,
+      finalAudioBytes: input.finalAudioBytes ?? null,
+      attemptCount: { increment: 1 },
       answeredAt: new Date(),
     },
     select: sessionResponsePublicSelect,
@@ -185,5 +249,93 @@ export async function updateSessionStatus(input: {
       ...(input.completedAt !== undefined ? { completedAt: input.completedAt } : {}),
     },
     select: sessionListSelect,
+  });
+}
+
+/**
+ * Prior completed/archived sessions for the same template, then a bounded deduped list of prompt texts
+ * to steer GPT away from repeating past prompts.
+ */
+export async function fetchPriorPromptTextsForTemplateTopic(params: {
+  userId: string;
+  templateId: string;
+  excludeSessionId: string;
+}): Promise<string[]> {
+  const recentSessions = await prisma.trainingSession.findMany({
+    where: {
+      userId: params.userId,
+      templateId: params.templateId,
+      id: { not: params.excludeSessionId },
+      status: {
+        in: [SessionStatus.COMPLETED, SessionStatus.CANCELLED, SessionStatus.ARCHIVED],
+      },
+    },
+    orderBy: { createdAt: "desc" },
+    take: PRIOR_SESSIONS_FOR_TOPIC,
+    select: { id: true },
+  });
+
+  const prompts: string[] = [];
+  const seen = new Set<string>();
+  for (const row of recentSessions) {
+    const qs = await prisma.sessionQuestion.findMany({
+      where: { sessionId: row.id },
+      orderBy: { ordinal: "asc" },
+      select: { promptText: true },
+    });
+    for (const q of qs) {
+      const t = q.promptText.trim();
+      if (!t || seen.has(t)) continue;
+      seen.add(t);
+      prompts.push(t);
+      if (prompts.length >= MAX_PRIOR_PROMPTS) return prompts;
+    }
+  }
+  return prompts;
+}
+
+/**
+ * Persists generated questions and moves the session to ACTIVE in one transaction
+ * so we never leave orphan questions without an active session.
+ */
+export async function createSessionQuestionsAndActivateSession(input: {
+  sessionId: string;
+  templateSlug: string;
+  model: string;
+  questions: Array<{
+    ordinal: number;
+    promptText: string;
+    helpText: string | null;
+    expectedDurationSec: number | null;
+    suggestedDurationSec: number | null;
+    maxDurationSec: number | null;
+  }>;
+}): Promise<void> {
+  if (input.questions.length === 0) {
+    throw new Error("Question generation produced no questions");
+  }
+  const now = new Date();
+  await prisma.$transaction(async (tx) => {
+    await tx.sessionQuestion.createMany({
+      data: input.questions.map((q) => ({
+        sessionId: input.sessionId,
+        ordinal: q.ordinal,
+        promptText: q.promptText,
+        helpText: q.helpText,
+        expectedDurationSec: q.expectedDurationSec,
+        suggestedDurationSec: q.suggestedDurationSec,
+        maxDurationSec: q.maxDurationSec,
+        isRequired: true,
+        generatedByModel: input.model,
+        sourceTopic: input.templateSlug,
+      })),
+    });
+    await tx.trainingSession.update({
+      where: { id: input.sessionId },
+      data: {
+        status: SessionStatus.ACTIVE,
+        lastActivityAt: now,
+      },
+    });
   });
 }

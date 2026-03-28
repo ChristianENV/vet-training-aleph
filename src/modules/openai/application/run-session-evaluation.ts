@@ -23,7 +23,11 @@ export async function runSessionEvaluationModel(input: {
   templateTitle: string | null;
   sessionType: string;
   items: EvaluationQaItem[];
-}): Promise<{ rawText: string; evaluation: SessionEvaluationOutput }> {
+}): Promise<{
+  rawText: string;
+  evaluation: SessionEvaluationOutput;
+  usage: { promptTokens: number | null; completionTokens: number | null; totalTokens: number | null };
+}> {
   const qaLines = input.items.map((item) => {
     const answer =
       item.transcriptText?.trim() ||
@@ -63,5 +67,12 @@ export async function runSessionEvaluationModel(input: {
     throw new Error(parsed.error);
   }
 
-  return { rawText, evaluation: parsed.data };
+  const u = completion.usage;
+  const usage = {
+    promptTokens: u?.prompt_tokens ?? null,
+    completionTokens: u?.completion_tokens ?? null,
+    totalTokens: u?.total_tokens ?? null,
+  };
+
+  return { rawText, evaluation: parsed.data, usage };
 }

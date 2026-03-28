@@ -36,7 +36,13 @@ enum SessionType {
 
 enum SessionStatus {
   DRAFT
+  /// GPT is generating SessionQuestion rows; no answers yet.
+  GENERATING_QUESTIONS
   ACTIVE
+  /// Final audio uploads to storage (R2) before analysis.
+  SAVING_FINAL_RESPONSES
+  /// AI evaluation running after uploads and persistence.
+  ANALYZING
   PAUSED
   COMPLETED
   CANCELLED
@@ -67,6 +73,34 @@ enum AnalysisStatus {
   FAILED
 }
 
+// --- AI usage & incidents ---
+
+enum AiOperationType {
+  GENERATE_QUESTIONS
+  EVALUATE_SESSION
+  TRANSCRIBE_AUDIO
+}
+
+enum AiUsageLogStatus {
+  SUCCESS
+  FAILED
+  PARTIAL
+}
+
+enum TranscriptStatus {
+  NONE
+  PENDING
+  AVAILABLE
+  FAILED
+}
+
+enum IncidentSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
 model User {
   id                 String    @id @default(cuid())
   email              String    @unique
@@ -88,6 +122,8 @@ model User {
   progressSnapshots      ProgressSnapshot[]
   auditLogsAsActor       AuditLog[]        @relation("AuditActor")
   auditLogsAsSubject     AuditLog[]        @relation("AuditSubject")
+  aiUsageLogs            AiUsageLog[]
+  technicalIncidents     TechnicalIncident[]
 
   @@index([role, isActive])
   @@index([isActive])
@@ -105,7 +141,7 @@ model UserProfile {
   updatedAt       DateTime @updatedAt
 }
 
-/// Catalog row for a practice template (metadata + optional legacy configJson).
+/// Catalog row for a practice template (topic / framework). Questions are generated per session at runtime.
 model SessionTemplate {
   id          String      @id @default(cuid())
   /// Stable key for idempotent seeds and imports (kebab-case).
@@ -119,32 +155,36 @@ model SessionTemplate {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
-  sessions  TrainingSession[]
-  questions SessionTemplateQuestion[]
+  sessions TrainingSession[]
 
   @@index([published, sortOrder])
 }
 
-/// Ordered prompts for a template (source of truth for guided evaluation flow).
-model SessionTemplateQuestion {
-  id                  String          @id @default(cuid())
-  templateId          String
-  template            SessionTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  ordinal             Int
-  promptText          String          @db.Text
-  helpText            String?         @db.Text
-  expectedDurationSec Int?
-  isRequired          Boolean         @default(true)
-  createdAt           DateTime        @default(now())
-  updatedAt           DateTime        @updatedAt
+/// GPT-generated (or stub) question set persisted for one training session.
+model SessionQuestion {
+  id                   String          @id @default(cuid())
+  sessionId            String
+  session              TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  ordinal              Int
+  promptText           String          @db.Text
+  helpText             String?         @db.Text
+  expectedDurationSec  Int?
+  suggestedDurationSec Int?
+  maxDurationSec       Int?
+  isRequired           Boolean         @default(true)
+  generatedByModel     String?
+  sourceTopic          String?         @db.Text
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
 
-  responses SessionResponse[]
+  responses            SessionResponse[]
+  technicalIncidents   TechnicalIncident[]
 
-  @@unique([templateId, ordinal])
-  @@index([templateId])
+  @@unique([sessionId, ordinal])
+  @@index([sessionId])
 }
 
-/// One learner attempt: answer each template question, then optional AI analysis.
+/// One learner attempt: one row per session question; final audio metadata + optional transcript (e.g. STT).
 model TrainingSession {
   id         String @id @default(cuid())
   userId     String
@@ -153,7 +193,7 @@ model TrainingSession {
   template   SessionTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
 
   status    SessionStatus
-  /// Primary input mode for answers (voice-first product; TEXT allowed for dev/MVP typing).
+  /// Primary input mode for answers (voice-first product).
   inputMode InputMode @default(VOICE)
   title     String?
   locale    String?
@@ -165,10 +205,15 @@ model TrainingSession {
   lastActivityAt   DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
+  /// Optional JSON: e.g. `{ "transcriptFallbackOrdinals": [1,2] }` for results UX.
+  finalizationMetaJson Json?
 
+  sessionQuestions  SessionQuestion[]
   responses         SessionResponse[]
   analyses          SessionAnalysis[]
   progressSnapshots ProgressSnapshot[]
+  aiUsageLogs       AiUsageLog[]
+  technicalIncidents TechnicalIncident[]
 
   @@index([userId, status])
   @@index([userId, createdAt])
@@ -176,26 +221,37 @@ model TrainingSession {
   @@index([status, updatedAt])
 }
 
-/// Learner answer for one template question (audio metadata + transcript for evaluation).
 model SessionResponse {
-  id                 String @id @default(cuid())
-  sessionId          String
-  session            TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  templateQuestionId String
-  templateQuestion   SessionTemplateQuestion @relation(fields: [templateQuestionId], references: [id], onDelete: Restrict)
-  /// Denormalized ordinal (from question) for stable ordering without joins.
-  ordinal            Int
+  id                String          @id @default(cuid())
+  sessionId         String
+  session           TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionQuestionId String
+  sessionQuestion   SessionQuestion @relation(fields: [sessionQuestionId], references: [id], onDelete: Cascade)
+  /// Denormalized ordinal for ordering without joins.
+  ordinal           Int
 
-  /// Optional storage key or HTTPS URL when uploads exist; MVP may leave null if only transcript is captured.
-  audioUrl       String?  @db.Text
-  transcriptText String?  @db.Text
-  durationSec    Int?
-  answeredAt     DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  transcriptText     String?          @db.Text
+  transcriptStatus   TranscriptStatus?
+  transcriptProvider String?
 
-  @@unique([sessionId, templateQuestionId])
+  attemptCount Int @default(0)
+  maxAttempts  Int @default(3)
+
+  finalAudioStorageKey  String?   @db.Text
+  finalAudioProvider    String?
+  finalAudioMimeType    String?
+  finalAudioBytes       Int?
+  finalAudioDurationSec Int?
+  finalAudioCodec       String?
+  audioUploadedAt       DateTime?
+
+  answeredAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([sessionId, sessionQuestionId])
   @@index([sessionId])
-  @@index([templateQuestionId])
+  @@index([sessionQuestionId])
 }
 
 /// Persists AI (or rules) outputs; payloadJson holds structured rubric/scores with schemaVersion.
@@ -219,8 +275,66 @@ model SessionAnalysis {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
+  aiUsageLogs AiUsageLog[]
+
   @@index([sessionId, createdAt])
   @@index([status])
+}
+
+/// OpenAI (or other provider) call accounting — questions generation, evaluation, future transcription.
+model AiUsageLog {
+  id               String           @id @default(cuid())
+  operationType    AiOperationType
+  userId           String?
+  user             User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sessionId        String?
+  session          TrainingSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  analysisId       String?
+  analysis         SessionAnalysis? @relation(fields: [analysisId], references: [id], onDelete: SetNull)
+
+  provider         String
+  model            String
+  promptTokens     Int?
+  completionTokens Int?
+  totalTokens      Int?
+  estimatedCostUsd Decimal? @db.Decimal(12, 6)
+  currency         String?  @default("USD")
+
+  status           AiUsageLogStatus
+  requestMetaJson  Json?
+  responseMetaJson Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([sessionId, createdAt])
+  @@index([analysisId])
+  @@index([operationType])
+}
+
+/// Operational / developer follow-up: failed final audio save, provider errors, etc.
+model TechnicalIncident {
+  id                String           @id @default(cuid())
+  userId            String?
+  user              User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sessionId         String?
+  session           TrainingSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  sessionQuestionId String?
+  sessionQuestion   SessionQuestion? @relation(fields: [sessionQuestionId], references: [id], onDelete: SetNull)
+
+  stage        String
+  provider     String?
+  errorCode    String?
+  errorMessage String          @db.Text
+  detailsJson  Json?
+  severity     IncidentSeverity
+
+  createdAt DateTime @default(now())
+
+  @@index([sessionId])
+  @@index([sessionQuestionId])
+  @@index([severity, createdAt])
+  @@index([stage])
 }
 
 model ProgressSnapshot {

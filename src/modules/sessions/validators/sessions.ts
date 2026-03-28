@@ -12,18 +12,27 @@ export const startSessionBodySchema = z.object({}).strict();
 
 export const submitSessionResponseBodySchema = z
   .object({
-    templateQuestionId: z.string().cuid(),
+    sessionQuestionId: z.string().cuid(),
     transcriptText: z.string().trim().max(32_000).optional(),
-    audioUrl: z.string().trim().max(2000).optional(),
-    durationSec: z.coerce.number().int().min(0).max(86400).optional(),
+    finalAudioStorageKey: z.string().trim().max(2000).optional(),
+    finalAudioDurationSec: z.coerce.number().int().min(0).max(86400).optional(),
+    /** Present when a voice answer was captured in-browser; upload happens later (e.g. R2 on finalize). */
+    finalAudioMimeType: z.string().trim().max(200).optional(),
+    finalAudioBytes: z.coerce.number().int().min(0).max(200_000_000).optional(),
   })
   .refine(
     (d) => {
       const t = d.transcriptText?.trim();
-      const a = d.audioUrl?.trim();
-      return Boolean(t || a);
+      const k = d.finalAudioStorageKey?.trim();
+      const mime = d.finalAudioMimeType?.trim();
+      const hasVoiceMeta =
+        (d.finalAudioDurationSec ?? 0) > 0 && typeof mime === "string" && mime.length > 0;
+      return Boolean(t || k || hasVoiceMeta);
     },
-    { message: "Provide transcriptText and/or audioUrl" },
+    {
+      message:
+        "Provide transcriptText, finalAudioStorageKey, or recorded audio metadata (duration + mime type)",
+    },
   );
 
 export type SubmitSessionResponseBody = z.infer<typeof submitSessionResponseBodySchema>;

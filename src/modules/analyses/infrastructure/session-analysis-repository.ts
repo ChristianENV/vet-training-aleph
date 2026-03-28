@@ -131,7 +131,11 @@ export async function findAnalysisByIdWithSession(analysisId: string) {
     where: { id: analysisId },
     include: {
       session: {
-        include: {
+        select: {
+          id: true,
+          userId: true,
+          title: true,
+          finalizationMetaJson: true,
           template: { select: { id: true, title: true, slug: true, sessionType: true } },
           user: { select: { id: true, email: true, name: true } },
         },

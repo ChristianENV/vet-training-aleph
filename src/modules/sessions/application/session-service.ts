@@ -1,6 +1,16 @@
-import { SessionStatus } from "@/generated/prisma/enums";
+import { AiUsageLogStatus, SessionStatus, TranscriptStatus } from "@/generated/prisma/enums";
 import type { AuthenticatedUser } from "@/lib/auth/authenticated-user";
 import { roleHasPermission } from "@/lib/auth/permissions";
+import { getServerEnv } from "@/lib/config/env";
+import {
+  estimateOpenAiMiniCostUsdFromUsage,
+  runSessionQuestionGenerationModel,
+} from "@/modules/openai/application/run-session-question-generation";
+import { getQuestionsModelName } from "@/modules/openai/infrastructure/openai-client";
+import {
+  recordQuestionGenerationAiUsage,
+  recordQuestionGenerationIncident,
+} from "@/modules/sessions/infrastructure/session-question-generation-logging";
 import * as sessionRepo from "@/modules/sessions/infrastructure/session-repository";
 import * as templateRepo from "@/modules/sessions/infrastructure/session-template-repository";
 import type {
@@ -11,7 +21,7 @@ import type {
 
 export class SessionsServiceError extends Error {
   constructor(
-    public readonly status: 400 | 403 | 404,
+    public readonly status: 400 | 403 | 404 | 422 | 500 | 502 | 503,
     message: string,
     public readonly code?: string,
   ) {
@@ -22,34 +32,30 @@ export class SessionsServiceError extends Error {
 
 export type SessionProgressSnapshot = {
   totalQuestions: number;
-  /** Questions that have a non-empty transcript or audio reference (ordered, strict flow). */
   answeredCount: number;
-  /** First question (by template ordinal) that does not yet have a satisfactory answer; null when all are filled. */
   currentQuestionId: string | null;
   completionPercent: number;
 };
 
 type QuestionProgressInput = { id: string; ordinal: number; isRequired: boolean };
 type ResponseProgressInput = {
-  templateQuestionId: string;
+  sessionQuestionId: string;
   transcriptText: string | null;
-  audioUrl: string | null;
+  finalAudioStorageKey: string | null;
+  finalAudioDurationSec?: number | null;
 };
 
 /**
- * MVP rule: learners answer template questions in **strict ordinal order**.
- * Progress "answered" = row exists with non-empty transcript or audio (same bar as completion).
- * Current question = first ordinal still missing that content.
+ * Progress uses persisted session questions (GPT-generated per session).
+ * "Answered" = transcript, uploaded audio key, or in-browser capture metadata pending upload.
  */
 export function computeSessionProgress(session: {
-  template: {
-    questions: QuestionProgressInput[];
-  } | null;
+  sessionQuestions: QuestionProgressInput[];
   responses: ResponseProgressInput[];
 }): SessionProgressSnapshot {
-  const ordered = [...(session.template?.questions ?? [])].sort((a, b) => a.ordinal - b.ordinal);
+  const ordered = [...session.sessionQuestions].sort((a, b) => a.ordinal - b.ordinal);
   const total = ordered.length;
-  const byId = new Map(session.responses.map((r) => [r.templateQuestionId, r]));
+  const byId = new Map(session.responses.map((r) => [r.sessionQuestionId, r]));
 
   let answeredCount = 0;
   let currentQuestionId: string | null = null;
@@ -72,18 +78,13 @@ export function computeSessionProgress(session: {
   };
 }
 
-/**
- * Enforces strict sequential answering + simple edit policy:
- * - May answer only the **current** (first unsatisfied) question, OR re-submit to any **earlier** ordinal (edit past answers).
- * - When every question is satisfied, may edit any question (review before complete).
- */
 function assertSequentialResponseAllowed(
-  template: { questions: QuestionProgressInput[] },
+  block: { questions: QuestionProgressInput[] },
   responses: ResponseProgressInput[],
   targetQuestionId: string,
 ): void {
-  const ordered = [...template.questions].sort((a, b) => a.ordinal - b.ordinal);
-  const byId = new Map(responses.map((r) => [r.templateQuestionId, r]));
+  const ordered = [...block.questions].sort((a, b) => a.ordinal - b.ordinal);
+  const byId = new Map(responses.map((r) => [r.sessionQuestionId, r]));
 
   let firstUnsatisfiedIndex = -1;
   for (let i = 0; i < ordered.length; i++) {
@@ -131,28 +132,26 @@ function assertCanMutateOwnSession(actor: AuthenticatedUser, session: { userId: 
   }
 }
 
-function assertTransition(from: SessionStatus, to: SessionStatus): void {
-  const allowed: Partial<Record<SessionStatus, SessionStatus[]>> = {
-    [SessionStatus.DRAFT]: [SessionStatus.ACTIVE, SessionStatus.CANCELLED],
-    [SessionStatus.ACTIVE]: [SessionStatus.COMPLETED, SessionStatus.CANCELLED],
-    [SessionStatus.PAUSED]: [SessionStatus.ACTIVE, SessionStatus.COMPLETED, SessionStatus.CANCELLED],
-  };
-  const ok = allowed[from]?.includes(to) ?? false;
-  if (!ok) {
+function assertCancelAllowed(from: SessionStatus): void {
+  const allowed = new Set<SessionStatus>([
+    SessionStatus.DRAFT,
+    SessionStatus.GENERATING_QUESTIONS,
+    SessionStatus.ACTIVE,
+    SessionStatus.PAUSED,
+  ]);
+  if (!allowed.has(from)) {
     throw new SessionsServiceError(
       400,
-      `Invalid status transition: ${from} → ${to}`,
+      `Cannot cancel a session in status ${from}`,
       "VALIDATION_ERROR",
     );
   }
 }
 
-function responseHasContent(r: {
-  transcriptText: string | null;
-  audioUrl: string | null;
-} | undefined): boolean {
+function responseHasContent(r: ResponseProgressInput | undefined): boolean {
   if (!r) return false;
-  return Boolean(r.transcriptText?.trim() || r.audioUrl?.trim());
+  if (r.transcriptText?.trim() || r.finalAudioStorageKey?.trim()) return true;
+  return (r.finalAudioDurationSec ?? 0) > 0;
 }
 
 export async function listTemplates() {
@@ -197,7 +196,10 @@ export async function getSessionByIdOrThrow(actor: AuthenticatedUser, sessionId:
 
 export async function getSessionDetailWithProgress(actor: AuthenticatedUser, sessionId: string) {
   const session = await getSessionByIdOrThrow(actor, sessionId);
-  const progress = computeSessionProgress(session);
+  const progress = computeSessionProgress({
+    sessionQuestions: session.sessionQuestions ?? [],
+    responses: session.responses ?? [],
+  });
   return { session, progress };
 }
 
@@ -209,9 +211,6 @@ export async function createSessionFromTemplate(actor: AuthenticatedUser, input:
   const template = await templateRepo.getPublishedTemplateById(input.templateId);
   if (!template) {
     throw new SessionsServiceError(404, "Template not found", "NOT_FOUND");
-  }
-  if (!template.questions.length) {
-    throw new SessionsServiceError(400, "Template has no questions configured", "VALIDATION_ERROR");
   }
 
   const { id } = await sessionRepo.createTrainingSessionDraft({
@@ -240,14 +239,115 @@ export async function startSession(actor: AuthenticatedUser, sessionId: string) 
       "VALIDATION_ERROR",
     );
   }
+  if (!session.template) {
+    throw new SessionsServiceError(400, "Session has no template", "VALIDATION_ERROR");
+  }
+
+  const env = getServerEnv();
+  if (!env.OPENAI_API_KEY) {
+    throw new SessionsServiceError(
+      503,
+      "Question generation is not available right now. Try again later or contact support.",
+      "SERVICE_UNAVAILABLE",
+    );
+  }
+
+  const template = session.template;
 
   await sessionRepo.updateSessionStatus({
     sessionId,
-    status: SessionStatus.ACTIVE,
+    status: SessionStatus.GENERATING_QUESTIONS,
     lastActivityAt: new Date(),
   });
 
-  return sessionRepo.getSessionById(sessionId);
+  try {
+    const priorPrompts = await sessionRepo.fetchPriorPromptTextsForTemplateTopic({
+      userId: actor.id,
+      templateId: template.id,
+      excludeSessionId: sessionId,
+    });
+
+    const { output, usage } = await runSessionQuestionGenerationModel({
+      templateTitle: template.title,
+      templateSlug: template.slug,
+      sessionType: template.sessionType,
+      templateDescription: template.description ?? null,
+      priorPromptsSample: priorPrompts,
+    });
+
+    const cost = estimateOpenAiMiniCostUsdFromUsage(
+      usage.model,
+      usage.promptTokens,
+      usage.completionTokens,
+    );
+
+    await sessionRepo.createSessionQuestionsAndActivateSession({
+      sessionId,
+      templateSlug: template.slug,
+      model: usage.model,
+      questions: output.questions.map((q) => ({
+        ordinal: q.ordinal,
+        promptText: q.promptText,
+        helpText: q.helpText ?? null,
+        expectedDurationSec: q.expectedDurationSec ?? null,
+        suggestedDurationSec: q.suggestedDurationSec ?? null,
+        maxDurationSec: q.maxDurationSec ?? null,
+      })),
+    });
+
+    await recordQuestionGenerationAiUsage({
+      userId: actor.id,
+      sessionId,
+      model: usage.model,
+      status: AiUsageLogStatus.SUCCESS,
+      promptTokens: usage.promptTokens,
+      completionTokens: usage.completionTokens,
+      totalTokens: usage.totalTokens,
+      estimatedCostUsd: cost,
+      requestMetaJson: {
+        templateSlug: template.slug,
+        priorPromptCount: priorPrompts.length,
+      },
+      responseMetaJson: {
+        questionCount: output.questions.length,
+      },
+    });
+
+    return sessionRepo.getSessionById(sessionId);
+  } catch (e) {
+    await sessionRepo.updateSessionStatus({
+      sessionId,
+      status: SessionStatus.DRAFT,
+      lastActivityAt: new Date(),
+    });
+
+    const msg = e instanceof Error ? e.message : "Question generation failed";
+    await recordQuestionGenerationIncident({
+      userId: actor.id,
+      sessionId,
+      errorMessage: msg,
+      detailsJson: { name: e instanceof Error ? e.name : "Error" },
+    });
+
+    await recordQuestionGenerationAiUsage({
+      userId: actor.id,
+      sessionId,
+      model: getQuestionsModelName(),
+      status: AiUsageLogStatus.FAILED,
+      promptTokens: null,
+      completionTokens: null,
+      totalTokens: null,
+      estimatedCostUsd: null,
+      requestMetaJson: { templateSlug: template.slug },
+      responseMetaJson: { error: msg.slice(0, 500) },
+    });
+
+    throw new SessionsServiceError(
+      502,
+      msg,
+      "QUESTION_GENERATION_FAILED",
+    );
+  }
 }
 
 export async function submitSessionResponse(
@@ -261,6 +361,13 @@ export async function submitSessionResponse(
   }
   assertCanMutateOwnSession(actor, session);
 
+  if (session.status === SessionStatus.GENERATING_QUESTIONS) {
+    throw new SessionsServiceError(
+      400,
+      "Questions are still being generated. Wait until the session is in progress.",
+      "VALIDATION_ERROR",
+    );
+  }
   if (session.status !== SessionStatus.ACTIVE) {
     throw new SessionsServiceError(
       400,
@@ -269,29 +376,80 @@ export async function submitSessionResponse(
     );
   }
 
-  const template = session.template;
-  if (!template) {
-    throw new SessionsServiceError(400, "Session has no template", "VALIDATION_ERROR");
-  }
-
-  const question = template.questions.find((q) => q.id === input.templateQuestionId);
-  if (!question) {
+  const questions = session.sessionQuestions ?? [];
+  if (questions.length === 0) {
     throw new SessionsServiceError(
       400,
-      "Question does not belong to this session template",
+      "No questions for this session yet. Start the session to generate questions.",
       "VALIDATION_ERROR",
     );
   }
 
-  assertSequentialResponseAllowed(template, session.responses ?? [], question.id);
+  const question = questions.find((q) => q.id === input.sessionQuestionId);
+  if (!question) {
+    throw new SessionsServiceError(
+      400,
+      "Question does not belong to this session",
+      "VALIDATION_ERROR",
+    );
+  }
+
+  assertSequentialResponseAllowed(
+    { questions },
+    session.responses ?? [],
+    question.id,
+  );
+
+  const existingForQuestion = (session.responses ?? []).find(
+    (r) => r.sessionQuestionId === question.id,
+  );
+  if (
+    existingForQuestion &&
+    existingForQuestion.attemptCount >= existingForQuestion.maxAttempts
+  ) {
+    throw new SessionsServiceError(
+      400,
+      "No attempts remaining for this question.",
+      "MAX_ATTEMPTS",
+    );
+  }
+
+  const transcriptTrim =
+    input.transcriptText !== undefined
+      ? input.transcriptText?.trim() || null
+      : (existingForQuestion?.transcriptText ?? null);
+  const ts = transcriptTrim ? TranscriptStatus.AVAILABLE : TranscriptStatus.NONE;
+
+  const storageKey =
+    input.finalAudioStorageKey !== undefined
+      ? input.finalAudioStorageKey?.trim() || null
+      : (existingForQuestion?.finalAudioStorageKey ?? null);
+
+  const durationSec =
+    input.finalAudioDurationSec !== undefined
+      ? input.finalAudioDurationSec
+      : (existingForQuestion?.finalAudioDurationSec ?? null);
+
+  const mimeType =
+    input.finalAudioMimeType !== undefined
+      ? input.finalAudioMimeType?.trim() || null
+      : (existingForQuestion?.finalAudioMimeType ?? null);
+
+  const bytes =
+    input.finalAudioBytes !== undefined
+      ? input.finalAudioBytes
+      : (existingForQuestion?.finalAudioBytes ?? null);
 
   await sessionRepo.upsertSessionResponse({
     sessionId,
-    templateQuestionId: question.id,
+    sessionQuestionId: question.id,
     ordinal: question.ordinal,
-    audioUrl: input.audioUrl?.trim() || null,
-    transcriptText: input.transcriptText?.trim() || null,
-    durationSec: input.durationSec ?? null,
+    transcriptText: transcriptTrim,
+    transcriptStatus: ts,
+    finalAudioStorageKey: storageKey,
+    finalAudioDurationSec: durationSec,
+    finalAudioMimeType: mimeType,
+    finalAudioBytes: bytes,
   });
 
   await sessionRepo.touchSessionActivity(sessionId);
@@ -313,10 +471,10 @@ export async function completeSession(actor: AuthenticatedUser, sessionId: strin
     );
   }
 
-  const questions = session.template?.questions ?? [];
+  const questions = session.sessionQuestions ?? [];
   const required = questions.filter((q) => q.isRequired);
   const responses = session.responses ?? [];
-  const byQ = new Map(responses.map((r) => [r.templateQuestionId, r]));
+  const byQ = new Map(responses.map((r) => [r.sessionQuestionId, r]));
 
   for (const q of required) {
     const r = byQ.get(q.id);
@@ -330,7 +488,7 @@ export async function completeSession(actor: AuthenticatedUser, sessionId: strin
     if (!responseHasContent(r)) {
       throw new SessionsServiceError(
         400,
-        `Question ${q.ordinal} needs a transcript or audio reference.`,
+        `Question ${q.ordinal} needs a saved voice answer, transcript, or uploaded audio reference.`,
         "VALIDATION_ERROR",
       );
     }
@@ -354,7 +512,7 @@ export async function cancelSession(actor: AuthenticatedUser, sessionId: string)
     throw new SessionsServiceError(404, "Session not found", "NOT_FOUND");
   }
   assertCanMutateOwnSession(actor, session);
-  assertTransition(session.status, SessionStatus.CANCELLED);
+  assertCancelAllowed(session.status);
 
   const now = new Date();
   await sessionRepo.updateSessionStatus({

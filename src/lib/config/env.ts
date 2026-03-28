@@ -22,6 +22,15 @@ const serverEnvSchema = z.object({
   /** OpenAI (server-only): session evaluation and future turn generation. */
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_EVAL_MODEL: z.string().min(1).optional().default("gpt-4o-mini"),
+  /** Model for per-session question generation (defaults to OPENAI_EVAL_MODEL). */
+  OPENAI_QUESTIONS_MODEL: z.string().min(1).optional(),
+  /** Cloudflare R2 (S3-compatible). When unset, final audio uses dev placeholder keys (no upload). */
+  R2_ENDPOINT: z.string().url().optional(),
+  R2_BUCKET: z.string().min(1).optional(),
+  R2_ACCESS_KEY_ID: z.string().min(1).optional(),
+  R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  /** Optional public base for signed URLs later; not exposed to learners in UI. */
+  R2_PUBLIC_BASE_URL: z.string().url().optional(),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

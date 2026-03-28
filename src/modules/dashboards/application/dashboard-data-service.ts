@@ -48,17 +48,20 @@ function computeUserNextAction(
   for (const s of sorted) {
     if (
       s.status === SessionStatus.DRAFT ||
+      s.status === SessionStatus.GENERATING_QUESTIONS ||
       s.status === SessionStatus.ACTIVE ||
       s.status === SessionStatus.PAUSED
     ) {
       const headline =
         s.status === SessionStatus.DRAFT
           ? "Continue your draft session"
-          : s.status === SessionStatus.PAUSED
-            ? "Resume your paused session"
-            : s.status === SessionStatus.ACTIVE
-              ? "Continue or complete your session"
-              : "Continue your session";
+          : s.status === SessionStatus.GENERATING_QUESTIONS
+            ? "Generating questions for your session"
+            : s.status === SessionStatus.PAUSED
+              ? "Resume your paused session"
+              : s.status === SessionStatus.ACTIVE
+                ? "Continue or complete your session"
+                : "Continue your session";
       return {
         kind: "continue_session",
         sessionId: s.id,

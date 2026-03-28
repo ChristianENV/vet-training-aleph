@@ -88,7 +88,7 @@ Output: `src/generated/prisma` (gitignored). Regenerate after schema changes: `n
 - **BFF** — `src/app/api/*` returns `{ ok, data }` / `{ ok, error, code? }` via `src/lib/http/json.ts`.
 - **Browser clients** — `src/lib/http/api-client.ts` (`parseApiJsonResponse`) shared by module `*-api.ts` helpers.
 - **Permissions** — `src/lib/auth/permissions.ts` + route guards; UI hides actions that would fail, servers still enforce.
-- **Docs** — `docs/architecture.md`, `docs/api-conventions.md`, `docs/roles-and-permissions.md`.
+- **Docs** — `docs/architecture.md`, `docs/api-conventions.md`, `docs/roles-and-permissions.md`, `docs/session-domain-model.md` (session questions, responses, AI usage / incidents).
 
 ## Post-MVP TODOs (non-blocking)
 

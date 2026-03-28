@@ -2,23 +2,32 @@ import type { SessionStatus, SessionType } from "@/generated/prisma/enums";
 import { parseApiJsonResponse } from "@/lib/http/api-client";
 import type { SessionListQuery } from "@/modules/sessions/validators/sessions";
 
-export type TemplateQuestionRow = {
+export type SessionQuestionRow = {
   id: string;
   ordinal: number;
   promptText: string;
   helpText: string | null;
   expectedDurationSec: number | null;
+  suggestedDurationSec: number | null;
+  maxDurationSec: number | null;
   isRequired: boolean;
+  generatedByModel: string | null;
+  sourceTopic: string | null;
 };
 
 export type SessionResponseRow = {
   id: string;
-  templateQuestionId: string;
+  sessionQuestionId: string;
   ordinal: number;
-  audioUrl: string | null;
   transcriptText: string | null;
-  durationSec: number | null;
-  answeredAt: string;
+  transcriptStatus: string | null;
+  finalAudioStorageKey: string | null;
+  finalAudioDurationSec: number | null;
+  finalAudioMimeType: string | null;
+  finalAudioBytes: number | null;
+  attemptCount: number;
+  maxAttempts: number;
+  answeredAt: string | null;
 };
 
 export type SessionProgressDto = {
@@ -36,8 +45,6 @@ export type SessionTemplateRow = {
   sessionType: SessionType;
   sortOrder: number;
   createdAt: string;
-  _count?: { questions: number };
-  questions?: TemplateQuestionRow[];
 };
 
 export type TrainingSessionRow = {
@@ -52,15 +59,28 @@ export type TrainingSessionRow = {
   lastActivityAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Server-only finalize metadata (e.g. transcript fallback ordinals). */
+  finalizationMetaJson?: unknown;
   template: {
     id: string;
     slug: string;
     title: string;
     sessionType: SessionType;
     description?: string | null;
-    questions?: TemplateQuestionRow[];
   } | null;
+  sessionQuestions?: SessionQuestionRow[];
   responses?: SessionResponseRow[];
+};
+
+/** Subset returned from POST `/api/sessions/:id/finalize` for navigation and status. */
+export type FinalizeSessionEvaluationDto = {
+  analysis: {
+    id: string;
+    status: string;
+    summary: string | null;
+    errorMessage: string | null;
+  };
+  evaluationRun: { outcome: "SUCCEEDED" | "FAILED"; message: string | null };
 };
 
 export async function fetchTemplates() {
@@ -103,10 +123,12 @@ export async function startSessionRequest(sessionId: string) {
 }
 
 export type SubmitSessionResponseBody = {
-  templateQuestionId: string;
+  sessionQuestionId: string;
   transcriptText?: string;
-  audioUrl?: string;
-  durationSec?: number;
+  finalAudioStorageKey?: string;
+  finalAudioDurationSec?: number;
+  finalAudioMimeType?: string;
+  finalAudioBytes?: number;
 };
 
 export async function submitSessionResponseRequest(
@@ -130,6 +152,19 @@ export async function completeSessionRequest(sessionId: string) {
     body: "{}",
   });
   return parseApiJsonResponse<{ session: TrainingSessionRow; progress: SessionProgressDto }>(res);
+}
+
+export async function finalizeSessionRequest(sessionId: string, formData: FormData) {
+  const res = await fetch(`/api/sessions/${sessionId}/finalize`, {
+    method: "POST",
+    credentials: "include",
+    body: formData,
+  });
+  return parseApiJsonResponse<{
+    session: TrainingSessionRow;
+    progress: SessionProgressDto;
+    evaluation: FinalizeSessionEvaluationDto;
+  }>(res);
 }
 
 export async function cancelSessionRequest(sessionId: string) {

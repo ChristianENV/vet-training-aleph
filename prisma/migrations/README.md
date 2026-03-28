@@ -2,9 +2,9 @@
 
 ## Baseline (`20260326231521_init`)
 
-Single **greenfield** PostgreSQL migration that creates the full MVP schema, including the **question/response** model:
+Single **greenfield** PostgreSQL migration that creates the initial MVP schema (later superseded in part by `20260328120000_session_questions_ai_usage`):
 
-- `SessionTemplate`, **`SessionTemplateQuestion`**, `TrainingSession`, **`SessionResponse`**, `SessionAnalysis`, plus auth/progress/audit tables.
+- `SessionTemplate`, `TrainingSession`, `SessionResponse` (legacy shape), `SessionAnalysis`, plus auth/progress/audit tables. (Initial migration historically included `SessionTemplateQuestion`; see session questions migration above.)
 - **`SessionTurn` / `TurnSpeaker` are not created** — the product uses ordered questions and responses only.
 
 Apply with:
@@ -18,6 +18,13 @@ npx prisma migrate deploy
 ## Legacy cleanup (`20260327210000_drop_legacy_session_turn_if_present`)
 
 If a database was created from an **older** schema that still has chat-turn tables, this migration removes them **when present** (`IF EXISTS`). On fresh databases created only from `20260326231521_init`, it is a **no-op**.
+
+## Session questions + AI usage (`20260328120000_session_questions_ai_usage`)
+
+Replaces **fixed template questions** (`SessionTemplateQuestion`) with **per-session** `SessionQuestion`, expands `SessionResponse` for audio/transcript/attempts, and adds **`AiUsageLog`** and **`TechnicalIncident`**.
+
+- **Destructive:** drops `SessionResponse` and `SessionTemplateQuestion` (no data backfill). Re-seed templates after migrate; session data is not preserved.
+- See **`docs/session-domain-model.md`** for the new model and API breaking notes.
 
 ## Do not
 

@@ -41,9 +41,18 @@ type SessionInfo = {
   id: string;
   title: string | null;
   userId: string;
+  finalizationMetaJson?: unknown;
   template: { title: string; slug: string; sessionType: string } | null;
   user: { id: string; email: string; name: string | null };
 };
+
+function readTranscriptFallbackOrdinals(meta: unknown): number[] {
+  if (!meta || typeof meta !== "object") return [];
+  const o = meta as Record<string, unknown>;
+  const arr = o.transcriptFallbackOrdinals;
+  if (!Array.isArray(arr)) return [];
+  return arr.filter((x): x is number => typeof x === "number");
+}
 
 type Props = { analysisId: string };
 
@@ -80,6 +89,7 @@ export function AnalysisDetail({ analysisId }: Props) {
   const a = q.data.analysis;
   const session = a.session as SessionInfo;
   const ev = a.status === AnalysisStatus.COMPLETED ? readEvaluation(a.payloadJson) : null;
+  const transcriptFallbackOrdinals = readTranscriptFallbackOrdinals(session.finalizationMetaJson);
 
   return (
     <div className="space-y-6">
@@ -106,6 +116,20 @@ export function AnalysisDetail({ analysisId }: Props) {
         </Link>
       </div>
 
+      {transcriptFallbackOrdinals.length > 0 ? (
+        <Card className="border-amber-500/40 bg-amber-500/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Written notes used for some prompts</CardTitle>
+            <CardDescription>
+              For prompt{transcriptFallbackOrdinals.length === 1 ? " " : "s "}
+              {transcriptFallbackOrdinals.join(", ")}, scoring used your written support notes. That can happen
+              when a voice answer cannot be saved for processing; voice is still preferred whenever it is
+              available.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      ) : null}
+
       {a.summary ? (
         <Card>
           <CardHeader>
@@ -126,7 +150,7 @@ export function AnalysisDetail({ analysisId }: Props) {
           <CardContent>
             <p className="text-destructive text-sm">{a.errorMessage}</p>
             <p className="text-muted-foreground mt-2 text-xs">
-              Open the session and try &quot;Run AI evaluation&quot; again, or contact support if this
+              Open the session and use &quot;Run evaluation again&quot; if available, or contact support if this
               persists.
             </p>
           </CardContent>

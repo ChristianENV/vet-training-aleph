@@ -18,8 +18,8 @@ export default async function SessionPage(props: Props) {
   return (
     <div className="mx-auto max-w-3xl space-y-8">
       <PageHeader
-        title="Training session"
-        description="Answer prompts in order (transcript-first), complete the session, then run AI evaluation from this page."
+        title="Oral assessment"
+        description="Guided spoken practice: one prompt at a time, optional support transcript, then finish and run evaluation when you are ready."
       />
       <SessionDetail sessionId={sessionId} />
     </div>

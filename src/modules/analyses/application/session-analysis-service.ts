@@ -1,16 +1,23 @@
-import { AnalysisStatus, SessionStatus, SessionType } from "@/generated/prisma/enums";
+import {
+  AiUsageLogStatus,
+  AnalysisStatus,
+  SessionStatus,
+  SessionType,
+} from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 import type { AuthenticatedUser } from "@/lib/auth/authenticated-user";
 import { getServerEnv } from "@/lib/config/env";
-import { runSessionEvaluationModel } from "@/modules/openai";
+import { estimateOpenAiMiniCostUsdFromUsage, runSessionEvaluationModel } from "@/modules/openai";
 import {
   ANALYSIS_RESULT_KIND,
   ANALYSIS_SCHEMA_VERSION,
 } from "@/modules/analyses/infrastructure/session-analysis-repository";
 import * as analysisRepo from "@/modules/analyses/infrastructure/session-analysis-repository";
+import { recordSessionEvaluationAiUsage } from "@/modules/analyses/infrastructure/evaluation-ai-usage-logging";
 import { recordProgressAfterSuccessfulAnalysis } from "@/modules/analyses/application/progress-service";
 import { AnalysisServiceError } from "@/modules/analyses/application/analysis-errors";
 import { getSessionByIdOrThrow } from "@/modules/sessions/application/session-service";
+import * as sessionRepo from "@/modules/sessions/infrastructure/session-repository";
 
 function assertOwnerForEvaluation(actor: AuthenticatedUser, session: { userId: string }): void {
   if (session.userId !== actor.id) {
@@ -23,10 +30,6 @@ export type SessionEvaluationRunOutcome = "SUCCEEDED" | "FAILED";
 
 export type EvaluateCompletedSessionResult = {
   analysis: NonNullable<Awaited<ReturnType<typeof analysisRepo.findLatestAnalysisBySessionId>>>;
-  /**
-   * Explicit run outcome — do not infer success from HTTP 200 alone.
-   * When FAILED, `analysis.status` is FAILED and `evaluationRun.message` matches persisted `errorMessage`.
-   */
   evaluationRun: {
     outcome: SessionEvaluationRunOutcome;
     message: string | null;
@@ -34,8 +37,8 @@ export type EvaluateCompletedSessionResult = {
 };
 
 /**
- * Runs AI evaluation for a completed session. Caller must enforce `analyses:request` + session access (see POST route).
- * Always returns 200 from the route when this resolves; check `evaluationRun.outcome` for model/parse success.
+ * Runs AI evaluation. Allowed when session is **COMPLETED** (legacy manual) or **ANALYZING** (automatic finalize pipeline).
+ * When **ANALYZING**, transitions session to **COMPLETED** after the run (success or failure).
  */
 export async function evaluateCompletedSession(
   actor: AuthenticatedUser,
@@ -44,13 +47,30 @@ export async function evaluateCompletedSession(
   const session = await getSessionByIdOrThrow(actor, sessionId);
   assertOwnerForEvaluation(actor, session);
 
-  if (session.status !== SessionStatus.COMPLETED) {
+  if (
+    session.status !== SessionStatus.COMPLETED &&
+    session.status !== SessionStatus.ANALYZING
+  ) {
     throw new AnalysisServiceError(
       400,
-      "Analysis is only available for completed sessions",
+      "Analysis is not available for this session state",
       "VALIDATION_ERROR",
     );
   }
+
+  const wasAnalyzing = session.status === SessionStatus.ANALYZING;
+
+  const markSessionCompletedIfNeeded = async () => {
+    if (!wasAnalyzing) return;
+    const end = new Date();
+    await sessionRepo.updateSessionStatus({
+      sessionId,
+      status: SessionStatus.COMPLETED,
+      lastActivityAt: end,
+      endedAt: end,
+      completedAt: end,
+    });
+  };
 
   const running = await analysisRepo.findRunningAnalysisForSession(sessionId);
   if (running) {
@@ -59,9 +79,10 @@ export async function evaluateCompletedSession(
 
   const env = getServerEnv();
   if (!env.OPENAI_API_KEY) {
+    await markSessionCompletedIfNeeded();
     throw new AnalysisServiceError(
       503,
-      "OpenAI is not configured (set OPENAI_API_KEY)",
+      "Scoring is not available right now. Your answers are saved—try again shortly, or use “Run evaluation again” on this session page.",
       "SERVICE_UNAVAILABLE",
     );
   }
@@ -75,26 +96,28 @@ export async function evaluateCompletedSession(
     );
   }
 
-  const questions = session.template?.questions ?? [];
+  const questions = session.sessionQuestions ?? [];
   const byQid = new Map(questions.map((q) => [q.id, q]));
   const items = responses
     .slice()
     .sort((a, b) => a.ordinal - b.ordinal)
     .map((r) => {
-      const q = byQid.get(r.templateQuestionId);
+      const q = byQid.get(r.sessionQuestionId);
+      const storageKey = r.finalAudioStorageKey?.trim();
       return {
         ordinal: r.ordinal,
         promptText: q?.promptText ?? "(Missing question text)",
         transcriptText: r.transcriptText,
-        audioUrl: r.audioUrl,
-        durationSec: r.durationSec,
+        audioUrl: storageKey ? `[storage:${storageKey}]` : null,
+        durationSec: r.finalAudioDurationSec ?? null,
       };
     });
 
   const record = await analysisRepo.createRunningAnalysis(sessionId);
+  const modelName = env.OPENAI_EVAL_MODEL;
 
   try {
-    const { rawText, evaluation } = await runSessionEvaluationModel({
+    const { rawText, evaluation, usage } = await runSessionEvaluationModel({
       sessionTitle: session.title,
       templateTitle: session.template?.title ?? null,
       sessionType: session.template?.sessionType ?? SessionType.GUIDED_DIALOGUE,
@@ -120,9 +143,25 @@ export async function evaluateCompletedSession(
     };
 
     await analysisRepo.markAnalysisCompleted(record.id, {
-      model: env.OPENAI_EVAL_MODEL,
+      model: modelName,
       summary: evaluation.summary,
       payloadJson,
+    });
+
+    const cost = estimateOpenAiMiniCostUsdFromUsage(modelName, usage.promptTokens, usage.completionTokens);
+
+    await recordSessionEvaluationAiUsage({
+      userId: session.userId,
+      sessionId,
+      analysisId: record.id,
+      model: modelName,
+      status: AiUsageLogStatus.SUCCESS,
+      promptTokens: usage.promptTokens,
+      completionTokens: usage.completionTokens,
+      totalTokens: usage.totalTokens,
+      estimatedCostUsd: cost,
+      requestMetaJson: { sessionId, analysisId: record.id },
+      responseMetaJson: { outcome: "completed" },
     });
 
     try {
@@ -138,6 +177,22 @@ export async function evaluateCompletedSession(
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Evaluation failed";
     await analysisRepo.markAnalysisFailed(record.id, msg);
+
+    await recordSessionEvaluationAiUsage({
+      userId: session.userId,
+      sessionId,
+      analysisId: record.id,
+      model: modelName,
+      status: AiUsageLogStatus.FAILED,
+      promptTokens: null,
+      completionTokens: null,
+      totalTokens: null,
+      estimatedCostUsd: null,
+      requestMetaJson: { sessionId, analysisId: record.id },
+      responseMetaJson: { error: msg.slice(0, 500) },
+    });
+  } finally {
+    await markSessionCompletedIfNeeded();
   }
 
   const latest = await analysisRepo.findLatestAnalysisBySessionId(sessionId);
@@ -155,11 +210,7 @@ export async function evaluateCompletedSession(
   };
 }
 
-/**
- * Latest analysis row for a session. Caller must enforce `analyses:view` + session visibility (see GET route).
- */
 export async function getLatestAnalysisForSession(actor: AuthenticatedUser, sessionId: string) {
   await getSessionByIdOrThrow(actor, sessionId);
   return analysisRepo.findLatestAnalysisBySessionId(sessionId);
 }
-

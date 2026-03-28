@@ -53,14 +53,6 @@ const TEMPLATE_SEEDS: TemplateSeed[] = [
   },
 ];
 
-type QuestionSeed = {
-  ordinal: number;
-  promptText: string;
-  helpText?: string;
-  expectedDurationSec?: number;
-  isRequired: boolean;
-};
-
 type UserSeed = {
   email: string;
   name: string;
@@ -131,99 +123,6 @@ const ADDITIONAL_USER_SEEDS: UserSeed[] = [
     role: UserRole.USER,
   },
 ];
-
-/** Ordered questions per template slug — idempotent upserts by (templateId, ordinal). */
-const TEMPLATE_QUESTIONS: Record<string, QuestionSeed[]> = {
-  "clinical-intake-dialogue": [
-    {
-      ordinal: 1,
-      promptText:
-        "A client brings in a dog with acute vomiting. How do you open the intake, ask about diet and duration, and set a professional, empathetic tone?",
-      helpText: "Speak as you would in an exam room. Aim for 45–90 seconds.",
-      expectedDurationSec: 90,
-      isRequired: true,
-    },
-    {
-      ordinal: 2,
-      promptText:
-        "The owner is worried about cost. How do you explain next diagnostic steps without overwhelming them?",
-      helpText: "Focus on clarity and shared decision-making.",
-      expectedDurationSec: 90,
-      isRequired: true,
-    },
-    {
-      ordinal: 3,
-      promptText: "Summarize the plan and follow-up in two or three sentences for the client.",
-      helpText: "Close with a clear timeline and when to call the clinic.",
-      expectedDurationSec: 60,
-      isRequired: true,
-    },
-  ],
-  "surgery-consent-role-play": [
-    {
-      ordinal: 1,
-      promptText:
-        "Explain routine ovariohysterectomy at a high level: what the procedure involves and why it is recommended in this case.",
-      helpText: "Avoid jargon; offer to define terms if needed.",
-      expectedDurationSec: 90,
-      isRequired: true,
-    },
-    {
-      ordinal: 2,
-      promptText: "Discuss anesthesia risks and monitoring in plain language for a worried owner.",
-      expectedDurationSec: 90,
-      isRequired: true,
-    },
-    {
-      ordinal: 3,
-      promptText:
-        "Confirm informed consent: invite questions and restate post-operative care and emergency signs.",
-      expectedDurationSec: 90,
-      isRequired: true,
-    },
-  ],
-  "terminology-quick-drill": [
-    {
-      ordinal: 1,
-      promptText: "Define CBC and explain one reason we might run it before anesthesia.",
-      expectedDurationSec: 60,
-      isRequired: true,
-    },
-    {
-      ordinal: 2,
-      promptText: "Explain what a chemistry panel tells us about organ function in one short paragraph.",
-      expectedDurationSec: 60,
-      isRequired: true,
-    },
-    {
-      ordinal: 3,
-      promptText: "Describe radiographs versus ultrasound to a client in simple terms.",
-      expectedDurationSec: 60,
-      isRequired: true,
-    },
-  ],
-  "case-chart-review": [
-    {
-      ordinal: 1,
-      promptText: "Read the following scenario: a cat with PU/PD and weight loss. State your differential list in spoken form.",
-      helpText: "Mention at least three differentials and why they matter.",
-      expectedDurationSec: 120,
-      isRequired: true,
-    },
-    {
-      ordinal: 2,
-      promptText: "Outline a SOAP-style plan: subjective, objective, assessment, and plan for the next visit.",
-      expectedDurationSec: 120,
-      isRequired: true,
-    },
-    {
-      ordinal: 3,
-      promptText: "How would you document owner communication and consent in the record?",
-      expectedDurationSec: 60,
-      isRequired: true,
-    },
-  ],
-};
 
 async function seedDeveloperUser(): Promise<void> {
   const email = process.env.DEV_USER_EMAIL?.trim();
@@ -318,36 +217,8 @@ async function seedSessionTemplates(): Promise<void> {
       },
     });
 
-    const template = await prisma.sessionTemplate.findUniqueOrThrow({ where: { slug: t.slug } });
-    const qdefs = TEMPLATE_QUESTIONS[t.slug] ?? [];
-
-    for (const q of qdefs) {
-      await prisma.sessionTemplateQuestion.upsert({
-        where: {
-          templateId_ordinal: {
-            templateId: template.id,
-            ordinal: q.ordinal,
-          },
-        },
-        create: {
-          templateId: template.id,
-          ordinal: q.ordinal,
-          promptText: q.promptText,
-          helpText: q.helpText ?? null,
-          expectedDurationSec: q.expectedDurationSec ?? null,
-          isRequired: q.isRequired,
-        },
-        update: {
-          promptText: q.promptText,
-          helpText: q.helpText ?? null,
-          expectedDurationSec: q.expectedDurationSec ?? null,
-          isRequired: q.isRequired,
-        },
-      });
-    }
-
     console.log(
-      `[seed] ${before ? "ENSURED (updated)" : "CREATED"}: session template slug=${t.slug} title="${t.title}" (${qdefs.length} questions)`,
+      `[seed] ${before ? "ENSURED (updated)" : "CREATED"}: session template slug=${t.slug} title="${t.title}" (topic only — per-session questions are generated at runtime)`,
     );
   }
 }

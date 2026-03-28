@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/db/prisma";
-import { templateQuestionPublicSelect } from "@/modules/sessions/infrastructure/session-repository";
 
 export async function listPublishedTemplates() {
   return prisma.sessionTemplate.findMany({
@@ -13,13 +12,6 @@ export async function listPublishedTemplates() {
       sessionType: true,
       sortOrder: true,
       createdAt: true,
-      _count: {
-        select: { questions: true },
-      },
-      questions: {
-        orderBy: { ordinal: "asc" },
-        select: templateQuestionPublicSelect,
-      },
     },
   });
 }
@@ -35,10 +27,6 @@ export async function getPublishedTemplateById(id: string) {
       sessionType: true,
       configJson: true,
       sortOrder: true,
-      questions: {
-        orderBy: { ordinal: "asc" },
-        select: templateQuestionPublicSelect,
-      },
     },
   });
 }

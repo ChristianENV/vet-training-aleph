@@ -8,7 +8,10 @@ export type ApiErrorCode =
   | "SEQUENTIAL_ORDER"
   | "CONFLICT"
   | "NOT_FOUND"
-  | "SERVICE_UNAVAILABLE";
+  | "SERVICE_UNAVAILABLE"
+  | "QUESTION_GENERATION_FAILED"
+  | "MAX_ATTEMPTS"
+  | "FINALIZE_RECOVERABLE";
 
 export function jsonOk<T>(data: T, init?: ResponseInit): NextResponse {
   return NextResponse.json({ ok: true as const, data }, init);

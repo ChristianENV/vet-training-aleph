@@ -89,15 +89,16 @@ export function SessionAnalysisPanel({
     evaluateMut.isPending || analysisInFlight || (analysis?.status === AnalysisStatus.COMPLETED);
 
   const primaryEvalLabel =
-    analysis?.status === AnalysisStatus.FAILED ? "Retry AI evaluation" : "Run AI evaluation";
+    analysis?.status === AnalysisStatus.FAILED ? "Retry evaluation" : "Run evaluation again";
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Session analysis (AI)</CardTitle>
         <CardDescription>
-          Structured evaluation from your saved answers (transcript-first). Runs only after the session status
-          is Completed. Requires an OpenAI API key on the server (see README).
+          After you finish an oral assessment, we score your answers automatically. Transcript and support
+          fields are used when needed. If something goes wrong, you can retry evaluation here. Requires an
+          OpenAI API key on the server (see README).
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
