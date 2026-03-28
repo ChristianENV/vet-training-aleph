@@ -25,12 +25,28 @@ import {
   fetchSessionDetail,
   startSessionRequest,
   submitSessionResponseRequest,
+  type SessionResponseRow,
+  type TemplateQuestionRow,
   type TrainingSessionRow,
 } from "./sessions-api";
 import { SESSION_STATUS_LABEL, SESSION_TYPE_LABEL } from "./session-labels";
 
-function responseHasContent(r: { transcriptText: string | null; audioUrl: string | null }) {
+function responseHasContent(r: { transcriptText: string | null; audioUrl: string | null } | undefined) {
+  if (!r) return false;
   return Boolean(r.transcriptText?.trim() || r.audioUrl?.trim());
+}
+
+/** Strict ordinal order: index of first question without transcript/audio, or -1 if all satisfied. */
+function indexOfFirstUnsatisfied(
+  questions: TemplateQuestionRow[],
+  responseByQuestion: Map<string, SessionResponseRow>,
+): number {
+  const ordered = [...questions].sort((a, b) => a.ordinal - b.ordinal);
+  for (let i = 0; i < ordered.length; i++) {
+    const r = responseByQuestion.get(ordered[i].id);
+    if (!responseHasContent(r)) return i;
+  }
+  return -1;
 }
 
 function canCompleteSession(session: TrainingSessionRow): boolean {
@@ -51,7 +67,8 @@ export function SessionDetail({ sessionId }: Props) {
   const queryClient = useQueryClient();
   const { data: auth } = useSessionUser();
   const [draft, setDraft] = useState({ transcript: "", durationSec: "", audioUrl: "" });
-  const [focusedQuestionId, setFocusedQuestionId] = useState<string | null>(null);
+  /** Selected question in the answer panel (current or an earlier ordinal for edits). */
+  const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
 
   const sessionQuery = useQuery({
     queryKey: ["training-session", sessionId],
@@ -73,30 +90,60 @@ export function SessionDetail({ sessionId }: Props) {
   const canViewAnalysis = !!role && roleHasPermission(role, "analyses:view");
 
   const questions = session?.template?.questions ?? [];
-  const allQuestionsAnswered =
-    !!progress &&
-    progress.totalQuestions > 0 &&
-    progress.answeredCount >= progress.totalQuestions;
-
-  const currentQuestionId = useMemo(() => {
-    if (focusedQuestionId && questions.some((q) => q.id === focusedQuestionId)) {
-      return focusedQuestionId;
-    }
-    if (progress?.currentQuestionId) {
-      return progress.currentQuestionId;
-    }
-    return questions[0]?.id ?? null;
-  }, [focusedQuestionId, progress?.currentQuestionId, questions]);
-
-  const currentQuestion = questions.find((q) => q.id === currentQuestionId) ?? null;
+  const questionsOrdered = useMemo(
+    () => [...questions].sort((a, b) => a.ordinal - b.ordinal),
+    [questions],
+  );
 
   const responseByQuestion = useMemo(() => {
     return new Map((session?.responses ?? []).map((r) => [r.templateQuestionId, r]));
   }, [session?.responses]);
 
+  const allQuestionsAnswered =
+    !!progress &&
+    progress.totalQuestions > 0 &&
+    progress.answeredCount >= progress.totalQuestions;
+
+  const firstUnsatisfiedIdx = useMemo(
+    () => indexOfFirstUnsatisfied(questions, responseByQuestion),
+    [questions, responseByQuestion],
+  );
+
+  /** Locked = future ordinal while there is still an unanswered step (strict flow). */
+  const isQuestionLocked = useCallback(
+    (q: TemplateQuestionRow) => {
+      if (session?.status !== SessionStatus.ACTIVE) return false;
+      if (firstUnsatisfiedIdx < 0) return false;
+      const idx = questionsOrdered.findIndex((x) => x.id === q.id);
+      return idx > firstUnsatisfiedIdx;
+    },
+    [firstUnsatisfiedIdx, questionsOrdered, session?.status],
+  );
+
+  const effectiveQuestionId = useMemo(() => {
+    if (selectedQuestionId) {
+      const sel = questionsOrdered.find((q) => q.id === selectedQuestionId);
+      if (!sel) return progress?.currentQuestionId ?? questionsOrdered[0]?.id ?? null;
+      if (session?.status !== SessionStatus.ACTIVE) return selectedQuestionId;
+      if (firstUnsatisfiedIdx < 0) return selectedQuestionId;
+      const selIdx = questionsOrdered.findIndex((q) => q.id === selectedQuestionId);
+      if (selIdx >= 0 && selIdx <= firstUnsatisfiedIdx) return selectedQuestionId;
+      return progress?.currentQuestionId ?? questionsOrdered[0]?.id ?? null;
+    }
+    return progress?.currentQuestionId ?? questionsOrdered[0]?.id ?? null;
+  }, [
+    firstUnsatisfiedIdx,
+    progress?.currentQuestionId,
+    questionsOrdered,
+    session?.status,
+    selectedQuestionId,
+  ]);
+
+  const currentQuestion = questionsOrdered.find((q) => q.id === effectiveQuestionId) ?? null;
+
   useEffect(() => {
-    if (!currentQuestionId) return;
-    const r = responseByQuestion.get(currentQuestionId);
+    if (!effectiveQuestionId) return;
+    const r = responseByQuestion.get(effectiveQuestionId);
     if (r) {
       setDraft({
         transcript: r.transcriptText ?? "",
@@ -106,7 +153,17 @@ export function SessionDetail({ sessionId }: Props) {
     } else {
       setDraft({ transcript: "", durationSec: "", audioUrl: "" });
     }
-  }, [currentQuestionId, responseByQuestion]);
+  }, [effectiveQuestionId, responseByQuestion]);
+
+  /** Clear selection if user advanced and had picked a now-locked question. */
+  useEffect(() => {
+    if (!selectedQuestionId || session?.status !== SessionStatus.ACTIVE) return;
+    if (firstUnsatisfiedIdx < 0) return;
+    const selIdx = questionsOrdered.findIndex((q) => q.id === selectedQuestionId);
+    if (selIdx > firstUnsatisfiedIdx) {
+      setSelectedQuestionId(null);
+    }
+  }, [firstUnsatisfiedIdx, questionsOrdered, session?.status, selectedQuestionId]);
 
   const invalidate = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ["training-session", sessionId] });
@@ -124,7 +181,7 @@ export function SessionDetail({ sessionId }: Props) {
     mutationFn: () => startSessionRequest(sessionId),
     onSuccess: () => {
       invalidate();
-      flashBanner("Session started — work through each question in order.");
+      flashBanner("Session started — answer each question in order before moving on.");
     },
   });
 
@@ -134,7 +191,7 @@ export function SessionDetail({ sessionId }: Props) {
       const durationRaw = draft.durationSec.trim();
       const durationParsed = durationRaw ? Number(durationRaw) : undefined;
       return submitSessionResponseRequest(sessionId, {
-        templateQuestionId: currentQuestion.id,
+        templateQuestionId: currentQuestion.id, // effectiveQuestionId; server enforces order
         transcriptText: draft.transcript.trim() || undefined,
         audioUrl: draft.audioUrl.trim() || undefined,
         durationSec:
@@ -142,6 +199,7 @@ export function SessionDetail({ sessionId }: Props) {
       });
     },
     onSuccess: () => {
+      setSelectedQuestionId(null);
       invalidate();
       flashBanner("Answer saved.");
     },
@@ -308,11 +366,11 @@ export function SessionDetail({ sessionId }: Props) {
           <CardHeader>
             <CardTitle className="text-base">Progress</CardTitle>
             <CardDescription>
-              {progress.answeredCount} of {progress.totalQuestions} answered ·{" "}
-              {progress.completionPercent}% complete
+              {progress.answeredCount} of {progress.totalQuestions} with answers ·{" "}
+              {progress.completionPercent}% complete · questions are answered in order
               {allQuestionsAnswered ? (
                 <span className="mt-1 block">
-                  All required prompts have answers — review or edit any, then complete.
+                  All prompts answered — you can review or edit any, then complete the session.
                 </span>
               ) : null}
             </CardDescription>
@@ -332,20 +390,33 @@ export function SessionDetail({ sessionId }: Props) {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Questions</CardTitle>
-            <CardDescription>Select a question to view or update your answer.</CardDescription>
+            <CardDescription>
+              Answer in order. Future steps stay locked until prior questions have a transcript or audio
+              reference. You can go back to edit earlier answers.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
-            {questions.map((q) => {
-              const answered = responseByQuestion.has(q.id);
-              const active = q.id === currentQuestionId;
+            {questionsOrdered.map((q) => {
+              const answered = responseHasContent(responseByQuestion.get(q.id));
+              const locked = isQuestionLocked(q);
+              const isCurrent =
+                s.status === SessionStatus.ACTIVE &&
+                firstUnsatisfiedIdx >= 0 &&
+                progress?.currentQuestionId === q.id;
+              const active = q.id === effectiveQuestionId;
+              const statusLabel = locked ? "Locked" : isCurrent ? "Current" : answered ? "Answered" : "Open";
               return (
                 <button
                   key={q.id}
                   type="button"
-                  onClick={() => setFocusedQuestionId(q.id)}
+                  disabled={locked}
+                  onClick={() => {
+                    if (!locked) setSelectedQuestionId(q.id);
+                  }}
                   className={cn(
                     "flex w-full items-start justify-between gap-3 rounded-lg border px-3 py-2 text-left text-sm transition-colors",
-                    active ? "border-primary bg-primary/5" : "hover:bg-muted/50",
+                    locked && "cursor-not-allowed opacity-60",
+                    active ? "border-primary bg-primary/5" : !locked && "hover:bg-muted/50",
                   )}
                 >
                   <div>
@@ -356,9 +427,7 @@ export function SessionDetail({ sessionId }: Props) {
                       <p className="text-muted-foreground mt-1 text-xs">{q.helpText}</p>
                     ) : null}
                   </div>
-                  <Badge variant={answered ? "secondary" : "outline"}>
-                    {answered ? "Answered" : "Open"}
-                  </Badge>
+                  <Badge variant={locked ? "outline" : answered ? "secondary" : "outline"}>{statusLabel}</Badge>
                 </button>
               );
             })}
@@ -373,6 +442,15 @@ export function SessionDetail({ sessionId }: Props) {
           <CardHeader>
             <CardTitle className="text-base">
               Question {currentQuestion.ordinal}
+              {s.status === SessionStatus.ACTIVE &&
+              firstUnsatisfiedIdx >= 0 &&
+              progress?.currentQuestionId === currentQuestion.id ? (
+                <span className="text-primary font-normal"> · Current</span>
+              ) : s.status === SessionStatus.ACTIVE && firstUnsatisfiedIdx >= 0 ? (
+                <span className="text-muted-foreground font-normal"> · Edit earlier answer</span>
+              ) : s.status === SessionStatus.ACTIVE && firstUnsatisfiedIdx < 0 ? (
+                <span className="text-muted-foreground font-normal"> · Review before completing</span>
+              ) : null}
               {currentQuestion.isRequired ? (
                 <span className="text-muted-foreground font-normal"> · Required</span>
               ) : null}

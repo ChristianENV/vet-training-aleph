@@ -5,6 +5,7 @@ export type ApiErrorCode =
   | "ACCOUNT_INACTIVE"
   | "FORBIDDEN"
   | "VALIDATION_ERROR"
+  | "SEQUENTIAL_ORDER"
   | "CONFLICT"
   | "NOT_FOUND"
   | "SERVICE_UNAVAILABLE";

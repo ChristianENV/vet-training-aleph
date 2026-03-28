@@ -22,29 +22,97 @@ export class SessionsServiceError extends Error {
 
 export type SessionProgressSnapshot = {
   totalQuestions: number;
+  /** Questions that have a non-empty transcript or audio reference (ordered, strict flow). */
   answeredCount: number;
+  /** First question (by template ordinal) that does not yet have a satisfactory answer; null when all are filled. */
   currentQuestionId: string | null;
   completionPercent: number;
 };
 
+type QuestionProgressInput = { id: string; ordinal: number; isRequired: boolean };
+type ResponseProgressInput = {
+  templateQuestionId: string;
+  transcriptText: string | null;
+  audioUrl: string | null;
+};
+
+/**
+ * MVP rule: learners answer template questions in **strict ordinal order**.
+ * Progress "answered" = row exists with non-empty transcript or audio (same bar as completion).
+ * Current question = first ordinal still missing that content.
+ */
 export function computeSessionProgress(session: {
   template: {
-    questions: Array<{ id: string; ordinal: number; isRequired: boolean }>;
+    questions: QuestionProgressInput[];
   } | null;
-  responses: Array<{ templateQuestionId: string }>;
+  responses: ResponseProgressInput[];
 }): SessionProgressSnapshot {
-  const questions = session.template?.questions ?? [];
-  const total = questions.length;
-  const answeredIds = new Set(session.responses.map((r) => r.templateQuestionId));
-  const answeredCount = questions.filter((q) => answeredIds.has(q.id)).length;
-  const firstUnanswered = questions.find((q) => !answeredIds.has(q.id));
+  const ordered = [...(session.template?.questions ?? [])].sort((a, b) => a.ordinal - b.ordinal);
+  const total = ordered.length;
+  const byId = new Map(session.responses.map((r) => [r.templateQuestionId, r]));
+
+  let answeredCount = 0;
+  let currentQuestionId: string | null = null;
+
+  for (const q of ordered) {
+    const r = byId.get(q.id);
+    if (responseHasContent(r)) {
+      answeredCount++;
+    } else if (currentQuestionId === null) {
+      currentQuestionId = q.id;
+    }
+  }
+
   const completionPercent = total === 0 ? 0 : Math.round((answeredCount / total) * 100);
   return {
     totalQuestions: total,
     answeredCount,
-    currentQuestionId: firstUnanswered?.id ?? null,
+    currentQuestionId,
     completionPercent,
   };
+}
+
+/**
+ * Enforces strict sequential answering + simple edit policy:
+ * - May answer only the **current** (first unsatisfied) question, OR re-submit to any **earlier** ordinal (edit past answers).
+ * - When every question is satisfied, may edit any question (review before complete).
+ */
+function assertSequentialResponseAllowed(
+  template: { questions: QuestionProgressInput[] },
+  responses: ResponseProgressInput[],
+  targetQuestionId: string,
+): void {
+  const ordered = [...template.questions].sort((a, b) => a.ordinal - b.ordinal);
+  const byId = new Map(responses.map((r) => [r.templateQuestionId, r]));
+
+  let firstUnsatisfiedIndex = -1;
+  for (let i = 0; i < ordered.length; i++) {
+    const q = ordered[i];
+    const r = byId.get(q.id);
+    if (!responseHasContent(r)) {
+      firstUnsatisfiedIndex = i;
+      break;
+    }
+  }
+
+  const targetIndex = ordered.findIndex((q) => q.id === targetQuestionId);
+  if (targetIndex < 0) {
+    return;
+  }
+
+  if (firstUnsatisfiedIndex === -1) {
+    return;
+  }
+
+  if (targetIndex === firstUnsatisfiedIndex || targetIndex < firstUnsatisfiedIndex) {
+    return;
+  }
+
+  throw new SessionsServiceError(
+    400,
+    "Answer questions in order. Finish the current question before skipping ahead.",
+    "SEQUENTIAL_ORDER",
+  );
 }
 
 export function canViewSession(actor: AuthenticatedUser, session: { userId: string }): boolean {
@@ -82,7 +150,8 @@ function assertTransition(from: SessionStatus, to: SessionStatus): void {
 function responseHasContent(r: {
   transcriptText: string | null;
   audioUrl: string | null;
-}): boolean {
+} | undefined): boolean {
+  if (!r) return false;
   return Boolean(r.transcriptText?.trim() || r.audioUrl?.trim());
 }
 
@@ -213,6 +282,8 @@ export async function submitSessionResponse(
       "VALIDATION_ERROR",
     );
   }
+
+  assertSequentialResponseAllowed(template, session.responses ?? [], question.id);
 
   await sessionRepo.upsertSessionResponse({
     sessionId,

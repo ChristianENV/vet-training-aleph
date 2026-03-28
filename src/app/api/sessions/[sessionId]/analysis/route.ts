@@ -8,6 +8,12 @@ function mapError(e: AnalysisServiceError) {
   return jsonError(e.message, e.status, undefined, e.code as ApiErrorCode | undefined);
 }
 
+/**
+ * GET `/api/sessions/[sessionId]/analysis`
+ *
+ * - **Permission**: `analyses:view` only (read). `getSessionByIdOrThrow` enforces session access (owner or elevated view).
+ * - **Response**: `{ ok: true, data: { analysis } }` — `analysis` may be null if none exists.
+ */
 export async function GET(
   _request: NextRequest,
   context: { params: Promise<{ sessionId: string }> },

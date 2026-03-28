@@ -11,7 +11,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { fetchSessionAnalysis, requestSessionEvaluation } from "./analyses-api";
+import {
+  fetchSessionAnalysis,
+  requestSessionEvaluation,
+  type SessionEvaluationRunDto,
+} from "./analyses-api";
 import { ANALYSIS_STATUS_LABEL, READINESS_LABEL } from "./analysis-labels";
 import { useState } from "react";
 
@@ -53,7 +57,8 @@ export function SessionAnalysisPanel({
 }: Props) {
   const queryClient = useQueryClient();
   const enabled = sessionStatus === "COMPLETED" && canView;
-  const [evalOkHint, setEvalOkHint] = useState(false);
+  /** Banner after a trigger: succeeded vs failed model run (HTTP 200 can be either). */
+  const [evalRunBanner, setEvalRunBanner] = useState<SessionEvaluationRunDto | null>(null);
 
   const analysisQuery = useQuery({
     queryKey: ["session-analysis", sessionId],
@@ -63,9 +68,9 @@ export function SessionAnalysisPanel({
 
   const evaluateMut = useMutation({
     mutationFn: () => requestSessionEvaluation(sessionId),
-    onSuccess: () => {
-      setEvalOkHint(true);
-      window.setTimeout(() => setEvalOkHint(false), 5000);
+    onSuccess: (data) => {
+      setEvalRunBanner(data.evaluationRun);
+      window.setTimeout(() => setEvalRunBanner(null), 8000);
       void queryClient.invalidateQueries({ queryKey: ["session-analysis", sessionId] });
       void queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
       void queryClient.invalidateQueries({ queryKey: ["progress-summary"] });
@@ -82,6 +87,9 @@ export function SessionAnalysisPanel({
     analysis?.status === AnalysisStatus.RUNNING || analysis?.status === AnalysisStatus.PENDING;
   const evalDisabled =
     evaluateMut.isPending || analysisInFlight || (analysis?.status === AnalysisStatus.COMPLETED);
+
+  const primaryEvalLabel =
+    analysis?.status === AnalysisStatus.FAILED ? "Retry AI evaluation" : "Run AI evaluation";
 
   return (
     <Card>
@@ -115,10 +123,17 @@ export function SessionAnalysisPanel({
                 ? "Working…"
                 : analysis?.status === AnalysisStatus.COMPLETED
                   ? "Evaluation complete"
-                  : "Run AI evaluation"}
+                  : primaryEvalLabel}
             </Button>
-            {evalOkHint ? (
-              <span className="text-muted-foreground text-sm">Results updated below.</span>
+            {evalRunBanner?.outcome === "SUCCEEDED" ? (
+              <span className="text-muted-foreground text-sm" role="status">
+                Evaluation completed — results are below.
+              </span>
+            ) : null}
+            {evalRunBanner?.outcome === "FAILED" ? (
+              <span className="text-destructive text-sm" role="alert">
+                The model run did not succeed — details are shown below. You can retry.
+              </span>
             ) : null}
             {evaluateMut.isError ? (
               <span className="text-destructive text-sm">
@@ -128,10 +143,12 @@ export function SessionAnalysisPanel({
           </div>
         ) : isOwner ? (
           <p className="text-muted-foreground text-sm">
-            Your account can’t start evaluations. Ask an administrator if you need access.
+            Your account is not allowed to start AI evaluations. Ask an administrator if you need access.
           </p>
         ) : (
-          <p className="text-muted-foreground text-sm">Only the session owner can run analysis.</p>
+          <p className="text-muted-foreground text-sm">
+            Only the learner who owns this session can start an evaluation.
+          </p>
         )}
 
         {!analysis ? (

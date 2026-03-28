@@ -18,6 +18,13 @@ Route handlers under `src/app/api` act as the **backend-for-frontend** for the R
 | `/api/sessions` | Training session lifecycle                   |
 | `/api/analyses` | Session analyses (future OpenAI integration) |
 
+## Session AI evaluation (session-scoped routes)
+
+| Method | Path | Permission | Notes |
+|--------|------|------------|--------|
+| `POST` | `/api/sessions/[sessionId]/analysis/evaluate` | `analyses:request` | Triggers evaluation only. Owner-only (enforced in service). **HTTP 200** returns `{ analysis, evaluationRun }`. Check **`evaluationRun.outcome`** (`SUCCEEDED` \| `FAILED`) — a failed model/parse run still persists a **FAILED** row; it is **not** an HTTP error. |
+| `GET` | `/api/sessions/[sessionId]/analysis` | `analyses:view` | Reads latest analysis or `null`. Session access via `getSessionByIdOrThrow` (same rules as other session reads). |
+
 ## Versioning
 
 - No public third-party API is promised in this MVP. If external consumers appear, introduce `/api/v1` and explicit deprecation notes.

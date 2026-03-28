@@ -70,6 +70,12 @@ export async function fetchSessionAnalysis(sessionId: string) {
   return parseApiJsonResponse<{ analysis: SessionAnalysisDto | null }>(res);
 }
 
+/** Mirrors POST `/api/sessions/.../analysis/evaluate` — check `evaluationRun.outcome` for model success. */
+export type SessionEvaluationRunDto = {
+  outcome: "SUCCEEDED" | "FAILED";
+  message: string | null;
+};
+
 export async function requestSessionEvaluation(sessionId: string) {
   const res = await fetch(`/api/sessions/${sessionId}/analysis/evaluate`, {
     method: "POST",
@@ -77,5 +83,8 @@ export async function requestSessionEvaluation(sessionId: string) {
     headers: { "Content-Type": "application/json" },
     body: "{}",
   });
-  return parseApiJsonResponse<{ analysis: SessionAnalysisDto }>(res);
+  return parseApiJsonResponse<{
+    analysis: SessionAnalysisDto;
+    evaluationRun: SessionEvaluationRunDto;
+  }>(res);
 }

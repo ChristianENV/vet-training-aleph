@@ -1,7 +1,6 @@
-import { SessionStatus, SessionType } from "@/generated/prisma/enums";
+import { AnalysisStatus, SessionStatus, SessionType } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 import type { AuthenticatedUser } from "@/lib/auth/authenticated-user";
-import { roleHasPermission } from "@/lib/auth/permissions";
 import { getServerEnv } from "@/lib/config/env";
 import { runSessionEvaluationModel } from "@/modules/openai";
 import {
@@ -19,11 +18,29 @@ function assertOwnerForEvaluation(actor: AuthenticatedUser, session: { userId: s
   }
 }
 
-export async function evaluateCompletedSession(actor: AuthenticatedUser, sessionId: string) {
-  if (!roleHasPermission(actor.role, "analyses:request")) {
-    throw new AnalysisServiceError(403, "Missing permission: analyses:request", "FORBIDDEN");
-  }
+/** Whether the synchronous OpenAI + parse pipeline produced a COMPLETED row (vs FAILED). */
+export type SessionEvaluationRunOutcome = "SUCCEEDED" | "FAILED";
 
+export type EvaluateCompletedSessionResult = {
+  analysis: NonNullable<Awaited<ReturnType<typeof analysisRepo.findLatestAnalysisBySessionId>>>;
+  /**
+   * Explicit run outcome — do not infer success from HTTP 200 alone.
+   * When FAILED, `analysis.status` is FAILED and `evaluationRun.message` matches persisted `errorMessage`.
+   */
+  evaluationRun: {
+    outcome: SessionEvaluationRunOutcome;
+    message: string | null;
+  };
+};
+
+/**
+ * Runs AI evaluation for a completed session. Caller must enforce `analyses:request` + session access (see POST route).
+ * Always returns 200 from the route when this resolves; check `evaluationRun.outcome` for model/parse success.
+ */
+export async function evaluateCompletedSession(
+  actor: AuthenticatedUser,
+  sessionId: string,
+): Promise<EvaluateCompletedSessionResult> {
   const session = await getSessionByIdOrThrow(actor, sessionId);
   assertOwnerForEvaluation(actor, session);
 
@@ -127,16 +144,22 @@ export async function evaluateCompletedSession(actor: AuthenticatedUser, session
   if (!latest) {
     throw new AnalysisServiceError(500, "Could not load analysis record");
   }
-  return latest;
+
+  const succeeded = latest.status === AnalysisStatus.COMPLETED;
+  return {
+    analysis: latest,
+    evaluationRun: {
+      outcome: succeeded ? "SUCCEEDED" : "FAILED",
+      message: succeeded ? null : latest.errorMessage,
+    },
+  };
 }
 
+/**
+ * Latest analysis row for a session. Caller must enforce `analyses:view` + session visibility (see GET route).
+ */
 export async function getLatestAnalysisForSession(actor: AuthenticatedUser, sessionId: string) {
   await getSessionByIdOrThrow(actor, sessionId);
-
-  if (!roleHasPermission(actor.role, "analyses:view")) {
-    throw new AnalysisServiceError(403, "Missing permission: analyses:view", "FORBIDDEN");
-  }
-
   return analysisRepo.findLatestAnalysisBySessionId(sessionId);
 }
 
