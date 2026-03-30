@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMicrophonePreflight } from "@/hooks/use-microphone-preflight";
 import type { OralRecorderResult } from "@/hooks/use-oral-recorder";
 import { SessionStatus } from "@/generated/prisma/enums";
-import { QueryLoadingHint } from "@/components/shared/query-status";
+import { LoadingState } from "@/components/shared/loading-state";
 import { SessionStatusBadge } from "@/components/shared/status-badges";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +20,7 @@ import {
 import { useSessionUser } from "@/hooks/use-session-user";
 import { roleHasPermission } from "@/lib/auth/permissions";
 import { ApiRequestError } from "@/lib/http/api-client";
+import { formatStoredTechnicalError } from "@/lib/ui/user-facing-errors";
 import { SessionAnalysisPanel } from "@/modules/analyses/presentation/session-analysis-panel";
 import {
   cancelSessionRequest,
@@ -86,11 +87,11 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
       if (
         st === SessionStatus.SAVING_FINAL_RESPONSES ||
         st === SessionStatus.TRANSCRIBING ||
-        st === SessionStatus.TRANSCRIPTION_FAILED ||
         st === SessionStatus.ANALYZING
       ) {
         return 2000;
       }
+      // TRANSCRIPTION_FAILED: terminal until the user retries — do not poll (wastes API calls).
       return false;
     },
   });
@@ -286,7 +287,8 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
       void queryClient.invalidateQueries({ queryKey: ["progress-summary"] });
       if (data.transcriptionFailed) {
         flashBanner(
-          "We saved your responses, but couldn’t prepare them for scoring yet. Use Try preparing again when you’re ready.",
+          data.transcriptionFailureMessage?.trim() ||
+            "We saved your responses, but couldn’t prepare them for scoring yet. Use Try preparing again when you’re ready.",
         );
         return;
       }
@@ -307,7 +309,10 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
       void queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
       void queryClient.invalidateQueries({ queryKey: ["progress-summary"] });
       if (data.transcriptionFailed) {
-        flashBanner("We still couldn’t prepare your answers for scoring. Please try again in a moment.");
+        flashBanner(
+          data.transcriptionFailureMessage?.trim() ||
+            "We still couldn’t prepare your answers for scoring. If this keeps happening, check that speech-to-text is configured on the server.",
+        );
         return;
       }
       const analysisId = data.evaluation?.analysis?.id;
@@ -328,7 +333,14 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
   });
 
   if (sessionQuery.isLoading) {
-    return <QueryLoadingHint>Loading session…</QueryLoadingHint>;
+    return (
+      <LoadingState
+        layout="fullscreen"
+        title="Preparing your session"
+        description="We're loading your session details and progress so you can continue smoothly."
+        hint="This usually takes just a few seconds."
+      />
+    );
   }
 
   if (sessionQuery.isError || !session || !progress) {
@@ -433,7 +445,11 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <QueryLoadingHint>Please wait…</QueryLoadingHint>
+            <LoadingState
+              embedded
+              title="Processing your assessment"
+              hint="This usually takes just a few seconds. Please keep this page open."
+            />
           </CardContent>
         </Card>
       ) : null}
@@ -461,7 +477,9 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
             )}
             {resumeMut.isError ? (
               <p className="text-destructive mt-2 text-sm">
-                {resumeMut.error instanceof Error ? resumeMut.error.message : "Request failed"}
+                {resumeMut.error instanceof Error
+                  ? formatStoredTechnicalError(resumeMut.error.message)
+                  : "Request failed"}
               </p>
             ) : null}
           </CardContent>
@@ -491,7 +509,11 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <QueryLoadingHint>Please wait…</QueryLoadingHint>
+            <LoadingState
+              embedded
+              title="Generating prompts"
+              hint="Your session is tailored to the topic you selected. This usually takes just a few seconds."
+            />
           </CardContent>
         </Card>
       ) : null}

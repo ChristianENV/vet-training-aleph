@@ -3,7 +3,7 @@ import { AnalysisStatus, SessionStatus } from "@/generated/prisma/enums";
 import { Badge, badgeVariants } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { ANALYSIS_STATUS_LABEL } from "@/modules/analyses/presentation/analysis-labels";
-import { SESSION_STATUS_LABEL } from "@/modules/sessions/presentation/session-labels";
+import { getSessionStatusLabel } from "@/modules/sessions/presentation/session-labels";
 
 type BadgeVariant = NonNullable<VariantProps<typeof badgeVariants>["variant"]>;
 
@@ -52,7 +52,7 @@ export function SessionStatusBadge({
 }) {
   return (
     <Badge variant={sessionStatusBadgeVariant(status)} className={cn(className)}>
-      {SESSION_STATUS_LABEL[status]}
+      {getSessionStatusLabel(status)}
     </Badge>
   );
 }

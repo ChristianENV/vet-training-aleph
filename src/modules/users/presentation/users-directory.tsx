@@ -27,6 +27,7 @@ import { createUserBodySchema } from "@/modules/users/validators/users";
 import type { CreateUserBody } from "@/modules/users/validators/users";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
+import { LoadingState } from "@/components/shared/loading-state";
 import { rolesForCreate, rolesForReassign } from "./role-helpers";
 import {
   createUserRequest,
@@ -125,7 +126,12 @@ export function UsersDirectory({ actorRole }: Props) {
       ) : null}
 
       {usersQuery.isLoading ? (
-        <p className="text-muted-foreground text-sm">Loading users…</p>
+        <LoadingState
+          layout="inline"
+          title="Loading directory"
+          description="Fetching the user list."
+          size="sm"
+        />
       ) : usersQuery.isError ? (
         <p className="text-destructive text-sm">
           {usersQuery.error instanceof Error ? usersQuery.error.message : "Failed to load users"}

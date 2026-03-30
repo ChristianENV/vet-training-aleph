@@ -44,16 +44,18 @@ export async function POST(
   }
 
   try {
-    const { session, evaluation, transcriptionFailed } = await finalizeSessionWithUploads(
-      gate.user,
-      sessionId,
-      uploads,
-    );
+    const {
+      session,
+      evaluation,
+      transcriptionFailed,
+      transcriptionFailureMessage,
+    } = await finalizeSessionWithUploads(gate.user, sessionId, uploads);
     return jsonOk({
       session,
       progress: computeSessionProgress(session),
       evaluation,
       transcriptionFailed,
+      transcriptionFailureMessage,
     });
   } catch (e) {
     if (e instanceof SessionsServiceError) {

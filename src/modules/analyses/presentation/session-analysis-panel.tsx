@@ -15,7 +15,9 @@ import {
   requestSessionEvaluation,
   type SessionEvaluationRunDto,
 } from "./analyses-api";
+import { LoadingState } from "@/components/shared/loading-state";
 import { AnalysisStatusBadge } from "@/components/shared/status-badges";
+import { formatStoredTechnicalError } from "@/lib/ui/user-facing-errors";
 import { EnrichedAnalysisSections, LegacyAnalysisSections } from "./analysis-results-sections";
 import {
   getAnalysisPayloadShape,
@@ -94,9 +96,12 @@ export function SessionAnalysisPanel({
       </CardHeader>
       <CardContent className="space-y-5">
         {analysisQuery.isLoading ? (
-          <p className="text-muted-foreground bg-muted/30 border-border/70 rounded-lg border px-3 py-2.5 text-sm">
-            Loading analysis…
-          </p>
+          <LoadingState
+            embedded
+            title="Loading session analysis"
+            hint="This usually takes just a few seconds."
+            size="sm"
+          />
         ) : analysisQuery.isError ? (
           <p className="text-destructive border-destructive/25 bg-error-100/60 rounded-lg border px-3 py-2.5 text-sm leading-relaxed">
             {analysisQuery.error instanceof Error
@@ -132,7 +137,9 @@ export function SessionAnalysisPanel({
               ) : null}
               {evaluateMut.isError ? (
                 <span className="text-destructive text-sm">
-                  {evaluateMut.error instanceof Error ? evaluateMut.error.message : "Request failed"}
+                  {evaluateMut.error instanceof Error
+                    ? formatStoredTechnicalError(evaluateMut.error.message)
+                    : "Request failed"}
                 </span>
               ) : null}
             </div>

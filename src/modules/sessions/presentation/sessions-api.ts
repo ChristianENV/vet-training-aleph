@@ -168,6 +168,7 @@ export async function finalizeSessionRequest(sessionId: string, formData: FormDa
     progress: SessionProgressDto;
     evaluation: FinalizeSessionEvaluationDto | null;
     transcriptionFailed: boolean;
+    transcriptionFailureMessage?: string | null;
   }>(res);
 }
 
@@ -183,6 +184,7 @@ export async function resumePostFinalizeRequest(sessionId: string) {
     progress: SessionProgressDto;
     evaluation: FinalizeSessionEvaluationDto | null;
     transcriptionFailed: boolean;
+    transcriptionFailureMessage?: string | null;
   }>(res);
 }
 

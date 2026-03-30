@@ -18,7 +18,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { QueryErrorHint, QueryLoadingHint } from "@/components/shared/query-status";
+import { LoadingState } from "@/components/shared/loading-state";
+import { QueryErrorHint } from "@/components/shared/query-status";
 import { fetchAnalysesList, fetchProgressSummary } from "./analyses-api";
 import { AnalysisStatusBadge } from "@/components/shared/status-badges";
 import { readinessLabelFromString } from "./analysis-labels";
@@ -70,7 +71,12 @@ export function AnalysesList() {
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
           {progressQuery.isLoading ? (
-            <QueryLoadingHint>Loading progress…</QueryLoadingHint>
+            <LoadingState
+              embedded
+              title="Loading progress snapshot"
+              hint="This usually takes just a few seconds."
+              size="sm"
+            />
           ) : progressQuery.isError ? (
             <QueryErrorHint>
               {progressQuery.error instanceof Error
@@ -112,7 +118,13 @@ export function AnalysesList() {
       <div>
         <h2 className="mb-3 text-lg font-medium">Analysis history</h2>
         {listQuery.isLoading ? (
-          <QueryLoadingHint>Loading analyses…</QueryLoadingHint>
+          <LoadingState
+            layout="inline"
+            title="Loading analyses"
+            description="Fetching your evaluation history."
+            hint="This usually takes just a few seconds."
+            size="sm"
+          />
         ) : listQuery.isError ? (
           <QueryErrorHint>
             {listQuery.error instanceof Error ? listQuery.error.message : "Failed to load"}

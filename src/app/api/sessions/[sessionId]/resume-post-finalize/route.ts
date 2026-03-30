@@ -27,15 +27,18 @@ export async function POST(
   const { sessionId } = await context.params;
 
   try {
-    const { session, evaluation, transcriptionFailed } = await resumePostFinalizeTranscription(
-      gate.user,
-      sessionId,
-    );
+    const {
+      session,
+      evaluation,
+      transcriptionFailed,
+      transcriptionFailureMessage,
+    } = await resumePostFinalizeTranscription(gate.user, sessionId);
     return jsonOk({
       session,
       progress: computeSessionProgress(session),
       evaluation,
       transcriptionFailed,
+      transcriptionFailureMessage,
     });
   } catch (e) {
     if (e instanceof SessionsServiceError) {

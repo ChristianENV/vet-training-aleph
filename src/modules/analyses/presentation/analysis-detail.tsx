@@ -11,7 +11,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { QueryLoadingHint } from "@/components/shared/query-status";
+import { LoadingState } from "@/components/shared/loading-state";
+import { formatStoredTechnicalError } from "@/lib/ui/user-facing-errors";
 import { fetchAnalysisDetail, type SessionAnalysisDto } from "./analyses-api";
 import { AnalysisStatusBadge } from "@/components/shared/status-badges";
 import { EnrichedAnalysisSections, LegacyAnalysisSections } from "./analysis-results-sections";
@@ -47,7 +48,14 @@ export function AnalysisDetail({ analysisId }: Props) {
   });
 
   if (q.isLoading) {
-    return <QueryLoadingHint>Loading analysis…</QueryLoadingHint>;
+    return (
+      <LoadingState
+        layout="fullscreen"
+        title="Loading your results"
+        description="We're fetching this evaluation and session details."
+        hint="Your feedback includes grammar, clarity, and professional communication."
+      />
+    );
   }
 
   if (q.isError || !q.data?.analysis) {
@@ -142,7 +150,7 @@ export function AnalysisDetail({ analysisId }: Props) {
             <CardDescription>The model could not produce a result for this run.</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-destructive text-sm">{a.errorMessage}</p>
+            <p className="text-destructive text-sm">{formatStoredTechnicalError(a.errorMessage)}</p>
             <p className="text-muted-foreground mt-2 text-xs">
               Open the session and use &quot;Run evaluation again&quot; if available, or contact support if this
               persists.

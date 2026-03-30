@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/table";
 import { AnalysisStatus, SessionStatus } from "@/generated/prisma/enums";
 import type { StaffDashboardData } from "@/modules/dashboards/application/dashboard-data-service";
-import { SESSION_STATUS_LABEL } from "@/modules/sessions/presentation/session-labels";
+import { getSessionStatusLabel } from "@/modules/sessions/presentation/session-labels";
 import { DASHBOARD_ANALYSIS_STATUS_LABEL, DASHBOARD_READINESS_LABEL } from "./dashboard-labels";
 
 function shortDate(d: Date) {
@@ -237,7 +237,7 @@ export function StaffDashboardView({ data }: Props) {
                         </Link>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={sessionStatusBadgeVariant(row.status)}>{SESSION_STATUS_LABEL[row.status]}</Badge>
+                        <Badge variant={sessionStatusBadgeVariant(row.status)}>{getSessionStatusLabel(row.status)}</Badge>
                       </TableCell>
                       <TableCell className="text-muted-foreground text-right text-xs">
                         {shortDate(row.updatedAt)}
@@ -317,7 +317,7 @@ export function StaffDashboardView({ data }: Props) {
             <CardContent className="flex flex-wrap gap-2">
               {Object.entries(sessions.byStatus).map(([status, n]) => (
                 <Badge key={status} variant={sessionStatusBadgeVariant(status as SessionStatus)}>
-                  {SESSION_STATUS_LABEL[status as keyof typeof SESSION_STATUS_LABEL]}: {n}
+                  {getSessionStatusLabel(status)}: {n}
                 </Badge>
               ))}
             </CardContent>

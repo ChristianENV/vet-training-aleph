@@ -2,6 +2,7 @@ import { SessionStatus } from "@/generated/prisma/enums";
 import type { AuthenticatedUser } from "@/lib/auth/authenticated-user";
 import { getServerEnv } from "@/lib/config/env";
 import { prisma } from "@/lib/db/prisma";
+import { writeDevAudioCache } from "@/lib/storage/dev-audio-cache";
 import { buildOralAssessmentObjectKey } from "@/lib/storage/oral-assessment-key";
 import { isR2Configured, uploadToR2WithRetry } from "@/lib/storage/r2-upload";
 import { evaluateCompletedSession } from "@/modules/analyses/application/session-analysis-service";
@@ -25,6 +26,8 @@ export type FinalizeSessionWithUploadsResult = {
   session: NonNullable<Awaited<ReturnType<typeof sessionRepo.getSessionById>>>;
   evaluation: EvaluateCompletedSessionResult | null;
   transcriptionFailed: boolean;
+  /** Present when `transcriptionFailed` is true — server-side reason for UI. */
+  transcriptionFailureMessage?: string | null;
 };
 
 /**
@@ -157,6 +160,9 @@ export async function finalizeSessionWithUploads(
           buffer: upload.buffer,
           contentType: upload.contentType || "application/octet-stream",
         });
+        if (!r2On) {
+          await writeDevAudioCache(sessionId, q.id, upload.buffer, upload.contentType);
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Upload failed";
         console.warn(
@@ -257,7 +263,12 @@ export async function finalizeSessionWithUploads(
     if (!failedSession) {
       throw new SessionsServiceError(500, "Session not found after transcription failure", "NOT_FOUND");
     }
-    return { session: failedSession, evaluation: null, transcriptionFailed: true };
+    return {
+      session: failedSession,
+      evaluation: null,
+      transcriptionFailed: true,
+      transcriptionFailureMessage: transcription.message,
+    };
   }
 
   await sessionRepo.mergeSessionFinalizationMeta(sessionId, {
@@ -321,7 +332,12 @@ export async function resumePostFinalizeTranscription(
     if (!failedSession) {
       throw new SessionsServiceError(500, "Session not found", "NOT_FOUND");
     }
-    return { session: failedSession, evaluation: null, transcriptionFailed: true };
+    return {
+      session: failedSession,
+      evaluation: null,
+      transcriptionFailed: true,
+      transcriptionFailureMessage: transcription.message,
+    };
   }
 
   await sessionRepo.mergeSessionFinalizationMeta(sessionId, {

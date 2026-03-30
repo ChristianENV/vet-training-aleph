@@ -22,7 +22,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { roleHasPermission } from "@/lib/auth/permissions";
-import { QueryErrorHint, QueryLoadingHint } from "@/components/shared/query-status";
+import { LoadingState } from "@/components/shared/loading-state";
+import { QueryErrorHint } from "@/components/shared/query-status";
 import { useState } from "react";
 import {
   createSessionRequest,
@@ -72,7 +73,13 @@ export function SessionsHome({ actorRole }: Props) {
           </p>
         </div>
         {templatesQuery.isLoading ? (
-          <QueryLoadingHint>Loading templates…</QueryLoadingHint>
+          <LoadingState
+            layout="inline"
+            title="Loading templates"
+            description="We're getting topics ready so you can start a session."
+            hint="This usually takes just a few seconds."
+            size="sm"
+          />
         ) : templatesQuery.isError ? (
           <QueryErrorHint>
             {templatesQuery.error instanceof Error
@@ -141,7 +148,13 @@ export function SessionsHome({ actorRole }: Props) {
           </p>
         </div>
         {sessionsQuery.isLoading ? (
-          <QueryLoadingHint>Loading history…</QueryLoadingHint>
+          <LoadingState
+            layout="inline"
+            title="Loading your sessions"
+            description="Fetching your recent training history."
+            hint="This usually takes just a few seconds."
+            size="sm"
+          />
         ) : sessionsQuery.isError ? (
           <QueryErrorHint>
             {sessionsQuery.error instanceof Error

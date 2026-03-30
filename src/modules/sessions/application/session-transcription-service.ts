@@ -1,6 +1,7 @@
 import { AiUsageLogStatus, TranscriptStatus } from "@/generated/prisma/enums";
 import type { AuthenticatedUser } from "@/lib/auth/authenticated-user";
 import { getServerEnv } from "@/lib/config/env";
+import { readDevAudioCache } from "@/lib/storage/dev-audio-cache";
 import { downloadObjectFromR2 } from "@/lib/storage/r2-download";
 import { isR2Configured } from "@/lib/storage/r2-upload";
 import { transcribeAudioBuffer } from "@/modules/openai/application/transcribe-audio-buffer";
@@ -79,23 +80,35 @@ export async function runFinalAudioTranscriptionPhase(
 
     if (!buffer) {
       try {
-        if (!isR2Configured(env)) {
-          await recordSessionFinalizeIncident({
-            userId: actor.id,
-            sessionId,
-            sessionQuestionId: q.id,
-            stage: "final_audio_transcription",
-            provider: "storage",
-            errorMessage: "No in-memory upload buffer and R2 is not configured",
-            detailsJson: { ordinal: q.ordinal },
-          });
-          await sessionRepo.updateSessionResponseTranscriptFailure({
-            sessionId,
-            sessionQuestionId: q.id,
-          });
-          return { ok: false, message: recoverableMsg };
+        if (isR2Configured(env)) {
+          buffer = await downloadObjectFromR2(env, audioKey);
+        } else {
+          if (r.finalAudioProvider === "dev-placeholder") {
+            const cached = await readDevAudioCache(sessionId, q.id, r.finalAudioMimeType);
+            if (cached) buffer = cached;
+          }
+          if (!buffer) {
+            await recordSessionFinalizeIncident({
+              userId: actor.id,
+              sessionId,
+              sessionQuestionId: q.id,
+              stage: "final_audio_transcription",
+              provider: "storage",
+              errorMessage:
+                "No in-memory upload buffer, R2 not configured, and dev audio cache miss",
+              detailsJson: { ordinal: q.ordinal },
+            });
+            await sessionRepo.updateSessionResponseTranscriptFailure({
+              sessionId,
+              sessionQuestionId: q.id,
+            });
+            return {
+              ok: false,
+              message:
+                "We couldn’t reload your saved voice answers on this server (no cloud storage, or the temporary copy expired). Configure object storage (R2) for reliable retries, or try finishing a new session.",
+            };
+          }
         }
-        buffer = await downloadObjectFromR2(env, audioKey);
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Download failed";
         await recordSessionFinalizeIncident({
