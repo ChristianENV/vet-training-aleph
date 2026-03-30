@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { UserRole } from "@/generated/prisma/enums";
-import { Badge } from "@/components/ui/badge";
+import { SessionStatusBadge } from "@/components/shared/status-badges";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -29,7 +29,7 @@ import {
   fetchSessionsList,
   fetchTemplates,
 } from "./sessions-api";
-import { SESSION_STATUS_LABEL, SESSION_TYPE_LABEL } from "./session-labels";
+import { SESSION_TYPE_LABEL } from "./session-labels";
 
 type Props = {
   actorRole: UserRole;
@@ -180,7 +180,7 @@ export function SessionsHome({ actorRole }: Props) {
                     {s.template ? SESSION_TYPE_LABEL[s.template.sessionType] : "—"}
                   </TableCell>
                   <TableCell>
-                    <Badge variant="secondary">{SESSION_STATUS_LABEL[s.status]}</Badge>
+                    <SessionStatusBadge status={s.status} />
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">
                     {new Date(s.updatedAt).toLocaleString()}

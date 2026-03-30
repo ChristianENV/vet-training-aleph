@@ -1,0 +1,15 @@
+{
+  "name": "Vet English Training",
+  "short_name": "Vet Training",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "theme_color": "#F7FAFC",
+  "background_color": "#F7FAFC",
+  "display": "standalone"
+}

@@ -3,7 +3,6 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { AnalysisStatus } from "@/generated/prisma/enums";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -14,7 +13,7 @@ import {
 } from "@/components/ui/card";
 import { QueryLoadingHint } from "@/components/shared/query-status";
 import { fetchAnalysisDetail, type SessionAnalysisDto } from "./analyses-api";
-import { ANALYSIS_STATUS_LABEL } from "./analysis-labels";
+import { AnalysisStatusBadge } from "@/components/shared/status-badges";
 import { EnrichedAnalysisSections, LegacyAnalysisSections } from "./analysis-results-sections";
 import {
   getAnalysisPayloadShape,
@@ -53,9 +52,9 @@ export function AnalysisDetail({ analysisId }: Props) {
 
   if (q.isError || !q.data?.analysis) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Not available</CardTitle>
+      <Card className="max-w-lg border-dashed">
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-base font-semibold tracking-tight">Not available</CardTitle>
           <CardDescription>
             {q.error instanceof Error ? q.error.message : "Could not load this analysis."}
           </CardDescription>
@@ -80,15 +79,20 @@ export function AnalysisDetail({ analysisId }: Props) {
   const showStandaloneSummary = a.summary && !enriched;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h2 className="text-xl font-semibold tracking-tight">Session analysis</h2>
-          <p className="text-muted-foreground text-sm">
+    <div className="space-y-8">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0 space-y-1">
+          <p className="text-muted-foreground text-[0.6875rem] font-semibold tracking-wide uppercase">
+            Analysis
+          </p>
+          <h2 className="text-brand-navy-900 text-xl font-semibold tracking-tight sm:text-2xl">
+            Session analysis
+          </h2>
+          <p className="text-muted-foreground text-sm leading-relaxed">
             {session.title ?? session.template?.title ?? "Session"} · {session.user.email}
           </p>
         </div>
-        <Badge variant="secondary">{ANALYSIS_STATUS_LABEL[a.status]}</Badge>
+        <AnalysisStatusBadge status={a.status} className="shrink-0" />
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -105,10 +109,12 @@ export function AnalysisDetail({ analysisId }: Props) {
       </div>
 
       {transcriptFallbackOrdinals.length > 0 ? (
-        <Card className="border-amber-500/40 bg-amber-500/5">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Written notes used for some prompts</CardTitle>
-            <CardDescription>
+        <Card className="border-warning-500/35 bg-warning-100 shadow-sm">
+          <CardHeader className="space-y-2 pb-2">
+            <CardTitle className="text-base font-semibold tracking-tight">
+              Written notes used for some prompts
+            </CardTitle>
+            <CardDescription className="text-sm leading-relaxed">
               For prompt{transcriptFallbackOrdinals.length === 1 ? " " : "s "}
               {transcriptFallbackOrdinals.join(", ")}, scoring used your written support notes. That can happen
               when a voice answer cannot be saved for processing; voice is still preferred whenever it is
@@ -120,11 +126,11 @@ export function AnalysisDetail({ analysisId }: Props) {
 
       {showStandaloneSummary ? (
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Summary</CardTitle>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-brand-navy-900 text-base font-semibold tracking-tight">Summary</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm whitespace-pre-wrap">{a.summary}</p>
+            <p className="text-foreground text-sm leading-relaxed whitespace-pre-wrap">{a.summary}</p>
           </CardContent>
         </Card>
       ) : null}

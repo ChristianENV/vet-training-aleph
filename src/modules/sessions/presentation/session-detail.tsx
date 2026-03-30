@@ -8,7 +8,7 @@ import { useMicrophonePreflight } from "@/hooks/use-microphone-preflight";
 import type { OralRecorderResult } from "@/hooks/use-oral-recorder";
 import { SessionStatus } from "@/generated/prisma/enums";
 import { QueryLoadingHint } from "@/components/shared/query-status";
-import { Badge } from "@/components/ui/badge";
+import { SessionStatusBadge } from "@/components/shared/status-badges";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -32,7 +32,7 @@ import {
 } from "./sessions-api";
 import { MicrophonePrepCard } from "./microphone-prep-card";
 import { OralAssessmentWizard } from "./oral-assessment-wizard";
-import { SESSION_STATUS_LABEL, SESSION_TYPE_LABEL } from "./session-labels";
+import { SESSION_TYPE_LABEL } from "./session-labels";
 import { formatSessionQuestionCountRange } from "./session-question-generation-copy";
 import {
   hasUnsavedLocalVoiceTake,
@@ -333,9 +333,9 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
 
   if (sessionQuery.isError || !session || !progress) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Session unavailable</CardTitle>
+      <Card className="max-w-lg border-dashed">
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-base font-semibold tracking-tight">Session unavailable</CardTitle>
           <CardDescription>
             {sessionQuery.error instanceof Error
               ? sessionQuery.error.message
@@ -394,7 +394,7 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
     <div className="space-y-8">
       {actionBanner ? (
         <p
-          className="bg-muted/60 text-foreground rounded-lg border px-3 py-2 text-sm"
+          className="text-foreground border-border bg-muted/40 rounded-lg border px-4 py-3 text-sm leading-relaxed shadow-sm"
           role="status"
         >
           {actionBanner}
@@ -403,7 +403,7 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
 
       {completeMut.isPending || resumeMut.isPending ? (
         <p
-          className="bg-muted/60 text-foreground rounded-lg border px-3 py-2 text-sm"
+          className="text-foreground border-brand-cyan-600/20 bg-brand-cyan-500/[0.06] rounded-lg border border-l-4 border-l-brand-cyan-600 px-4 py-3 text-sm leading-relaxed"
           role="status"
         >
           {resumeMut.isPending
@@ -415,9 +415,9 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
       {s.status === SessionStatus.SAVING_FINAL_RESPONSES ||
       s.status === SessionStatus.TRANSCRIBING ||
       s.status === SessionStatus.ANALYZING ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">
+        <Card className="border-brand-cyan-600/25 bg-brand-cyan-500/[0.04] border-l-brand-cyan-600 border-l-4 shadow-sm">
+          <CardHeader className="space-y-1">
+            <CardTitle className="text-brand-navy-900 text-base font-semibold tracking-tight">
               {s.status === SessionStatus.SAVING_FINAL_RESPONSES
                 ? "Saving your responses"
                 : s.status === SessionStatus.TRANSCRIBING
@@ -439,9 +439,9 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
       ) : null}
 
       {s.status === SessionStatus.TRANSCRIPTION_FAILED ? (
-        <Card className="border-amber-500/40 bg-amber-500/5">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">We saved your responses</CardTitle>
+        <Card className="border-warning-500/35 bg-warning-100 shadow-sm">
+          <CardHeader className="space-y-1 pb-3">
+            <CardTitle className="text-base font-semibold tracking-tight">We saved your responses</CardTitle>
             <CardDescription>
               We couldn&apos;t finish preparing them for scoring just yet. Nothing needs to be re-recorded —
               try again in a moment. If this keeps happening, contact support.
@@ -469,15 +469,17 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
       ) : null}
 
       {!isOwner ? (
-        <p className="text-muted-foreground rounded-lg border border-dashed p-3 text-sm">
+        <p className="text-muted-foreground border-border/80 bg-muted/15 rounded-lg border border-dashed px-4 py-3 text-sm leading-relaxed">
           You are viewing another learner&apos;s session (read-only).
         </p>
       ) : null}
 
       {s.status === SessionStatus.GENERATING_QUESTIONS ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Preparing your oral prompts</CardTitle>
+        <Card className="border-brand-cyan-600/25 bg-brand-cyan-500/[0.04] border-l-brand-cyan-600 border-l-4 shadow-sm">
+          <CardHeader className="space-y-1">
+            <CardTitle className="text-brand-navy-900 text-base font-semibold tracking-tight">
+              Preparing your oral prompts
+            </CardTitle>
             <CardDescription>
               We are generating a fresh set of{" "}
               {formatSessionQuestionCountRange(
@@ -495,31 +497,34 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
       ) : null}
 
       {!showWizard ? (
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h2 className="text-xl font-semibold tracking-tight">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="min-w-0 space-y-1">
+            <h2 className="text-brand-navy-900 text-xl font-semibold tracking-tight sm:text-2xl">
               {s.title ?? s.template?.title ?? "Oral assessment"}
             </h2>
-            <p className="text-muted-foreground text-sm">
+            <p className="text-muted-foreground text-sm leading-relaxed">
               {s.template ? SESSION_TYPE_LABEL[s.template.sessionType] : "Session"} ·{" "}
               {new Date(s.createdAt).toLocaleString()}
             </p>
           </div>
-          <Badge variant="secondary">{SESSION_STATUS_LABEL[s.status]}</Badge>
+          <SessionStatusBadge status={s.status} className="shrink-0" />
         </div>
       ) : null}
 
       {canMutate && s.status === SessionStatus.DRAFT ? (
-        <div className="space-y-4">
-          <p className="text-muted-foreground text-sm leading-relaxed">
-            Next, we&apos;ll check your microphone, then build{" "}
-            {formatSessionQuestionCountRange(
-              questionGenerationBounds.min,
-              questionGenerationBounds.max,
-            )}{" "}
-            for this run. You&apos;ll answer one prompt at a time in a guided flow (voice-first; support fields
-            are optional).
-          </p>
+        <div className="space-y-5">
+          <div className="border-border/70 bg-muted/20 max-w-2xl space-y-2 rounded-lg border px-4 py-3.5">
+            <p className="text-foreground text-sm font-medium">How this session works</p>
+            <p className="text-muted-foreground text-sm leading-relaxed">
+              We&apos;ll verify your microphone, then create{" "}
+              {formatSessionQuestionCountRange(
+                questionGenerationBounds.min,
+                questionGenerationBounds.max,
+              )}{" "}
+              for this topic. You&apos;ll move through them one at a time — voice-first, with optional support
+              notes.
+            </p>
+          </div>
           <MicrophonePrepCard
             status={micPreflightStatus}
             detailMessage={micPreflightDetail}
@@ -552,20 +557,20 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
       ) : null}
 
       {responseError ? (
-        <p className="text-destructive border-destructive/30 bg-destructive/5 rounded-lg border px-3 py-2 text-sm">
+        <p className="text-destructive border-destructive/25 bg-error-100/70 rounded-lg border px-4 py-3 text-sm leading-relaxed">
           {responseError}
         </p>
       ) : null}
       {finalizeError ? (
         <p
-          className="text-destructive border-destructive/30 bg-destructive/5 rounded-lg border px-3 py-2 text-sm"
+          className="text-destructive border-destructive/25 bg-error-100/70 rounded-lg border px-4 py-3 text-sm leading-relaxed"
           role="alert"
         >
           {finalizeError}
         </p>
       ) : null}
       {showWizard && cancelMut.isError ? (
-        <p className="text-destructive border-destructive/30 bg-destructive/5 rounded-lg border px-3 py-2 text-sm">
+        <p className="text-destructive border-destructive/25 bg-error-100/70 rounded-lg border px-4 py-3 text-sm leading-relaxed">
           {cancelMut.error instanceof Error ? cancelMut.error.message : "Cancel failed"}
         </p>
       ) : null}
@@ -599,7 +604,7 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
       ) : null}
 
       {s.status === SessionStatus.ACTIVE && questionsOrdered.length === 0 ? (
-        <p className="text-muted-foreground text-sm">
+        <p className="text-muted-foreground border-border/70 bg-muted/20 rounded-lg border border-dashed px-4 py-4 text-center text-sm leading-relaxed">
           This session is active but has no prompts yet. Try refreshing, or contact support if the problem
           persists.
         </p>

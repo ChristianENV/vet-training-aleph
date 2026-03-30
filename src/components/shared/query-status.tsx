@@ -4,7 +4,11 @@ import type { ReactNode } from "react";
 
 export function QueryLoadingHint({ children }: { children: ReactNode }) {
   return (
-    <p className="text-muted-foreground text-sm" role="status" aria-live="polite">
+    <p
+      className="text-muted-foreground bg-muted/30 border-border/80 rounded-lg border px-3 py-2.5 text-sm leading-relaxed"
+      role="status"
+      aria-live="polite"
+    >
       {children}
     </p>
   );
@@ -12,7 +16,10 @@ export function QueryLoadingHint({ children }: { children: ReactNode }) {
 
 export function QueryErrorHint({ children }: { children: ReactNode }) {
   return (
-    <p className="text-destructive text-sm" role="alert">
+    <p
+      className="text-destructive border-destructive/25 bg-error-100/60 rounded-lg border px-3 py-2.5 text-sm leading-relaxed"
+      role="alert"
+    >
       {children}
     </p>
   );

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AnalysisStatusBadge, SessionStatusBadge } from "@/components/shared/status-badges";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -16,8 +17,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { UserDashboardData } from "@/modules/dashboards/application/dashboard-data-service";
-import { SESSION_STATUS_LABEL } from "@/modules/sessions/presentation/session-labels";
-import { DASHBOARD_ANALYSIS_STATUS_LABEL, DASHBOARD_READINESS_LABEL } from "./dashboard-labels";
+import { DASHBOARD_READINESS_LABEL } from "./dashboard-labels";
 
 function shortDate(d: Date) {
   return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -64,7 +64,7 @@ type Props = {
 };
 
 const BUTTON_SM_CLASS =
-  "group/button inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-[min(var(--radius-md),12px)] border border-transparent bg-primary px-2.5 text-[0.8rem] font-medium whitespace-nowrap text-primary-foreground transition-all outline-none select-none hover:bg-primary/80 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px disabled:pointer-events-none disabled:opacity-50";
+  "group/button inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-[min(var(--radius-md),12px)] border border-transparent bg-primary px-2.5 text-[0.8rem] font-medium whitespace-nowrap text-primary-foreground transition-all outline-none select-none hover:bg-primary-hover focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px disabled:pointer-events-none disabled:opacity-50";
 
 const BUTTON_OUTLINE_SM_CLASS =
   "group/button inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-[min(var(--radius-md),12px)] border border-border bg-background px-2.5 text-[0.8rem] font-medium whitespace-nowrap transition-all outline-none select-none hover:bg-muted hover:text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px disabled:pointer-events-none disabled:opacity-50 dark:border-input dark:bg-input/30 dark:hover:bg-input/50";
@@ -75,13 +75,18 @@ export function UserDashboardView({ data }: Props) {
 
   return (
     <div className="space-y-8">
-      <Card className="border-primary/20">
-        <CardHeader>
-          <CardTitle className="text-base">What to do next</CardTitle>
-          <CardDescription>{na.detail}</CardDescription>
+      <Card className="border-brand-navy-600/15 overflow-hidden shadow-md">
+        <CardHeader className="bg-muted/25 border-b border-border/60 space-y-2 pb-4">
+          <p className="text-brand-cyan-700 text-[0.6875rem] font-semibold tracking-wide uppercase dark:text-brand-cyan-500">
+            Recommended next step
+          </p>
+          <CardTitle className="text-brand-navy-900 text-lg font-semibold tracking-tight">
+            What to do next
+          </CardTitle>
+          <CardDescription className="text-sm leading-relaxed">{na.detail}</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-3">
-          <p className="text-sm font-medium">{na.title}</p>
+        <CardContent className="flex flex-col gap-4 pt-5 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-foreground text-base font-semibold leading-snug">{na.title}</p>
           <Link href={nextAction.href} className={BUTTON_SM_CLASS}>
             Continue
           </Link>
@@ -90,13 +95,19 @@ export function UserDashboardView({ data }: Props) {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Recent sessions</CardTitle>
-            <CardDescription>Your latest training runs, newest first.</CardDescription>
+          <CardHeader className="space-y-1 pb-3">
+            <CardTitle className="text-brand-navy-900 text-base font-semibold tracking-tight">
+              Recent sessions
+            </CardTitle>
+            <CardDescription className="text-sm leading-relaxed">
+              Your latest training runs, newest first.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {recentSessions.length === 0 ? (
-              <p className="text-muted-foreground text-sm">No sessions yet.</p>
+              <p className="text-muted-foreground border-border/70 bg-muted/15 rounded-lg border border-dashed px-4 py-8 text-center text-sm leading-relaxed">
+                No sessions yet. Start a template from the sessions area when you are ready.
+              </p>
             ) : (
               <Table>
                 <TableHeader>
@@ -115,7 +126,7 @@ export function UserDashboardView({ data }: Props) {
                         </Link>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="secondary">{SESSION_STATUS_LABEL[s.status]}</Badge>
+                        <SessionStatusBadge status={s.status} />
                       </TableCell>
                       <TableCell className="text-muted-foreground text-right text-xs">
                         {shortDate(s.updatedAt)}
@@ -129,26 +140,30 @@ export function UserDashboardView({ data }: Props) {
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Latest analysis</CardTitle>
-            <CardDescription>Most recent evaluation linked to your sessions.</CardDescription>
+          <CardHeader className="space-y-1 pb-3">
+            <CardTitle className="text-brand-navy-900 text-base font-semibold tracking-tight">
+              Latest analysis
+            </CardTitle>
+            <CardDescription className="text-sm leading-relaxed">
+              Most recent evaluation linked to your sessions.
+            </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-2 text-sm">
+          <CardContent className="space-y-3 text-sm">
             {!latestAnalysis ? (
-              <p className="text-muted-foreground">No analyses yet.</p>
+              <p className="text-muted-foreground border-border/70 bg-muted/15 rounded-lg border border-dashed px-4 py-8 text-center leading-relaxed">
+                No analyses yet. Complete a session and run evaluation to see results here.
+              </p>
             ) : (
               <>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline">
-                    {DASHBOARD_ANALYSIS_STATUS_LABEL[latestAnalysis.status]}
-                  </Badge>
-                  <span className="text-muted-foreground text-xs">
+                  <AnalysisStatusBadge status={latestAnalysis.status} />
+                  <span className="text-muted-foreground text-xs tabular-nums">
                     {latestAnalysis.completedAt
                       ? shortDate(latestAnalysis.completedAt)
                       : shortDate(latestAnalysis.createdAt)}
                   </span>
                 </div>
-                <p className="line-clamp-2">
+                <p className="text-foreground line-clamp-3 leading-relaxed">
                   {latestAnalysis.summary?.trim() || "No summary yet."}
                 </p>
                 <Link
@@ -164,22 +179,24 @@ export function UserDashboardView({ data }: Props) {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Progress & readiness</CardTitle>
-          <CardDescription>
+        <CardHeader className="space-y-1 pb-3">
+          <CardTitle className="text-brand-navy-900 text-base font-semibold tracking-tight">
+            Progress &amp; readiness
+          </CardTitle>
+          <CardDescription className="text-sm leading-relaxed">
             From your latest progress snapshot (updated when an evaluation completes).
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-2 text-sm">
+        <CardContent className="space-y-3 text-sm">
             {!latestProgress ? (
-            <p className="text-muted-foreground">
+            <p className="text-muted-foreground border-border/70 bg-muted/15 rounded-lg border border-dashed px-4 py-6 text-center leading-relaxed">
               No snapshot yet. Complete a session and run AI evaluation successfully to record readiness.
             </p>
           ) : (
             <>
               <p>
                 <span className="text-muted-foreground">Readiness: </span>
-                <Badge>{DASHBOARD_READINESS_LABEL[latestProgress.readiness]}</Badge>
+                <Badge variant="outline">{DASHBOARD_READINESS_LABEL[latestProgress.readiness]}</Badge>
               </p>
               <p className="text-muted-foreground text-xs">
                 Captured {shortDate(latestProgress.capturedAt)}

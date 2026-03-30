@@ -2,7 +2,6 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -21,7 +20,8 @@ import {
 } from "@/components/ui/table";
 import { QueryErrorHint, QueryLoadingHint } from "@/components/shared/query-status";
 import { fetchAnalysesList, fetchProgressSummary } from "./analyses-api";
-import { ANALYSIS_STATUS_LABEL, readinessLabelFromString } from "./analysis-labels";
+import { AnalysisStatusBadge } from "@/components/shared/status-badges";
+import { readinessLabelFromString } from "./analysis-labels";
 
 type MetricsV1 = {
   version: 1;
@@ -144,7 +144,7 @@ export function AnalysesList() {
                     {a.session.title ?? a.session.template?.title ?? "Session"}
                   </TableCell>
                   <TableCell>
-                    <Badge variant="secondary">{ANALYSIS_STATUS_LABEL[a.status]}</Badge>
+                    <AnalysisStatusBadge status={a.status} />
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">
                     {new Date(a.createdAt).toLocaleString()}

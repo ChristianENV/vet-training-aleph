@@ -1,5 +1,9 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import {
+  analysisStatusBadgeVariant,
+  sessionStatusBadgeVariant,
+} from "@/components/shared/status-badges";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -16,6 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { AnalysisStatus, SessionStatus } from "@/generated/prisma/enums";
 import type { StaffDashboardData } from "@/modules/dashboards/application/dashboard-data-service";
 import { SESSION_STATUS_LABEL } from "@/modules/sessions/presentation/session-labels";
 import { DASHBOARD_ANALYSIS_STATUS_LABEL, DASHBOARD_READINESS_LABEL } from "./dashboard-labels";
@@ -68,10 +73,10 @@ function ScopeSection({
   children: ReactNode;
 }) {
   return (
-    <section className="space-y-4">
-      <div>
-        <h3 className="text-foreground text-sm font-medium">{title}</h3>
-        <p className="text-muted-foreground text-xs">{detail}</p>
+    <section className="space-y-5">
+      <div className="max-w-3xl space-y-1.5">
+        <h3 className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">{title}</h3>
+        <p className="text-muted-foreground text-sm leading-relaxed">{detail}</p>
       </div>
       {children}
     </section>
@@ -94,9 +99,11 @@ export function StaffDashboardView({ data }: Props) {
 
   return (
     <div className="space-y-10">
-      <div>
-        <h2 className="text-lg font-medium">{variantTitle(variant)}</h2>
-        <p className="text-muted-foreground text-sm">{variantLead(variant)}</p>
+      <div className="max-w-3xl space-y-2">
+        <h2 className="text-brand-navy-900 text-xl font-semibold tracking-tight sm:text-2xl">
+          {variantTitle(variant)}
+        </h2>
+        <p className="text-muted-foreground text-sm leading-relaxed">{variantLead(variant)}</p>
       </div>
 
       <ScopeSection
@@ -104,13 +111,19 @@ export function StaffDashboardView({ data }: Props) {
         detail="Non-protected accounts only — same visibility as the Users admin list and recent session list. Readiness uses the latest snapshot per directory user."
       >
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Directory users</CardTitle>
-              <CardDescription>Excludes protected system accounts</CardDescription>
+          <Card className="bg-muted/10 border-border/90">
+            <CardHeader className="space-y-1 pb-2">
+              <CardTitle className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+                Directory users
+              </CardTitle>
+              <CardDescription className="text-xs leading-relaxed">
+                Excludes protected system accounts
+              </CardDescription>
             </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-semibold">{users.visibleTotal}</p>
+            <CardContent className="pt-0">
+              <p className="text-brand-navy-900 text-3xl font-semibold tabular-nums tracking-tight">
+                {users.visibleTotal}
+              </p>
               <p className="text-muted-foreground text-xs">
                 Active {users.active} · Inactive {users.inactive}
               </p>
@@ -118,13 +131,19 @@ export function StaffDashboardView({ data }: Props) {
           </Card>
 
           {showElevatedAccountMetrics && users.allAccountsTotal != null ? (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">All user accounts</CardTitle>
-                <CardDescription>Includes protected (aggregate only)</CardDescription>
+            <Card className="bg-muted/10 border-border/90">
+              <CardHeader className="space-y-1 pb-2">
+                <CardTitle className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+                  All user accounts
+                </CardTitle>
+                <CardDescription className="text-xs leading-relaxed">
+                  Includes protected (aggregate only)
+                </CardDescription>
               </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-semibold">{users.allAccountsTotal}</p>
+              <CardContent className="pt-0">
+                <p className="text-brand-navy-900 text-3xl font-semibold tabular-nums tracking-tight">
+                  {users.allAccountsTotal}
+                </p>
                 {users.protectedAccounts != null ? (
                   <p className="text-muted-foreground text-xs">
                     Protected accounts (count only): {users.protectedAccounts}
@@ -134,13 +153,19 @@ export function StaffDashboardView({ data }: Props) {
             </Card>
           ) : null}
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Learners with a completion</CardTitle>
-              <CardDescription>Directory users with ≥1 completed session</CardDescription>
+          <Card className="bg-muted/10 border-border/90">
+            <CardHeader className="space-y-1 pb-2">
+              <CardTitle className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+                Learners with a completion
+              </CardTitle>
+              <CardDescription className="text-xs leading-relaxed">
+                Directory users with ≥1 completed session
+              </CardDescription>
             </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-semibold">{learnersWithCompletedSessionVisible}</p>
+            <CardContent className="pt-0">
+              <p className="text-brand-navy-900 text-3xl font-semibold tabular-nums tracking-tight">
+                {learnersWithCompletedSessionVisible}
+              </p>
               {showElevatedAccountMetrics && learnersWithCompletedSessionAllAccounts != null ? (
                 <p className="text-muted-foreground text-xs">
                   All accounts (incl. protected), distinct learners:{" "}
@@ -152,9 +177,11 @@ export function StaffDashboardView({ data }: Props) {
         </div>
 
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Readiness (latest per directory learner)</CardTitle>
-            <CardDescription>
+          <CardHeader className="space-y-1 pb-3">
+            <CardTitle className="text-brand-navy-900 text-base font-semibold tracking-tight">
+              Readiness (latest per directory learner)
+            </CardTitle>
+            <CardDescription className="text-sm leading-relaxed">
               Most recent snapshot per non-protected user ({readiness.learnersWithSnapshot} learners with
               data).
             </CardDescription>
@@ -169,18 +196,27 @@ export function StaffDashboardView({ data }: Props) {
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
-            <div>
-              <CardTitle className="text-base">Recent session activity</CardTitle>
-              <CardDescription>Latest updates from directory (non-protected) accounts.</CardDescription>
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0 pb-3">
+            <div className="min-w-0 space-y-1">
+              <CardTitle className="text-brand-navy-900 text-base font-semibold tracking-tight">
+                Recent session activity
+              </CardTitle>
+              <CardDescription className="text-sm leading-relaxed">
+                Latest updates from directory (non-protected) accounts.
+              </CardDescription>
             </div>
-            <Link href="/sessions" className="text-primary text-sm hover:underline">
+            <Link
+              href="/sessions"
+              className="text-primary hover:text-primary-hover shrink-0 text-sm font-medium underline-offset-4 hover:underline"
+            >
               Open sessions
             </Link>
           </CardHeader>
           <CardContent>
             {recentSessions.length === 0 ? (
-              <p className="text-muted-foreground text-sm">No sessions yet.</p>
+              <p className="text-muted-foreground border-border/70 bg-muted/15 rounded-lg border border-dashed px-4 py-8 text-center text-sm">
+                No sessions yet.
+              </p>
             ) : (
               <Table>
                 <TableHeader>
@@ -201,7 +237,7 @@ export function StaffDashboardView({ data }: Props) {
                         </Link>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="secondary">{SESSION_STATUS_LABEL[row.status]}</Badge>
+                        <Badge variant={sessionStatusBadgeVariant(row.status)}>{SESSION_STATUS_LABEL[row.status]}</Badge>
                       </TableCell>
                       <TableCell className="text-muted-foreground text-right text-xs">
                         {shortDate(row.updatedAt)}
@@ -220,13 +256,19 @@ export function StaffDashboardView({ data }: Props) {
         detail="Every training session and analysis row, including activity from protected accounts."
       >
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">New sessions (rolling 7 days)</CardTitle>
-              <CardDescription>Created in the last seven days, all accounts</CardDescription>
+          <Card className="bg-muted/10 border-border/90">
+            <CardHeader className="space-y-1 pb-2">
+              <CardTitle className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+                New sessions (rolling 7 days)
+              </CardTitle>
+              <CardDescription className="text-xs leading-relaxed">
+                Created in the last seven days, all accounts
+              </CardDescription>
             </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-semibold">{sessions.createdLast7Days}</p>
+            <CardContent className="pt-0">
+              <p className="text-brand-navy-900 text-3xl font-semibold tabular-nums tracking-tight">
+                {sessions.createdLast7Days}
+              </p>
               <p className="text-muted-foreground text-xs">All-time session rows: {sessions.total}</p>
             </CardContent>
           </Card>
@@ -234,21 +276,29 @@ export function StaffDashboardView({ data }: Props) {
 
         {variant === "product_owner" ? (
           <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">AI evaluation outcomes</CardTitle>
-              <CardDescription>
+            <CardHeader className="space-y-1 pb-3">
+              <CardTitle className="text-brand-navy-900 text-base font-semibold tracking-tight">
+                AI evaluation outcomes
+              </CardTitle>
+              <CardDescription className="text-sm leading-relaxed">
                 Finished vs failed analyses (all time, all accounts). In progress:{" "}
                 {analyses.byStatus.PENDING + analyses.byStatus.RUNNING}.
               </CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-wrap gap-8 text-sm">
+            <CardContent className="flex flex-wrap gap-10 text-sm">
               <div>
-                <p className="text-2xl font-semibold tabular-nums">{analyses.byStatus.COMPLETED}</p>
-                <p className="text-muted-foreground">Succeeded</p>
+                <p className="text-brand-navy-900 text-3xl font-semibold tabular-nums tracking-tight">
+                  {analyses.byStatus.COMPLETED}
+                </p>
+                <p className="text-muted-foreground mt-1 text-xs font-medium uppercase tracking-wide">
+                  Succeeded
+                </p>
               </div>
               <div>
-                <p className="text-2xl font-semibold tabular-nums">{analyses.byStatus.FAILED}</p>
-                <p className="text-muted-foreground">Failed</p>
+                <p className="text-brand-navy-900 text-3xl font-semibold tabular-nums tracking-tight">
+                  {analyses.byStatus.FAILED}
+                </p>
+                <p className="text-muted-foreground mt-1 text-xs font-medium uppercase tracking-wide">Failed</p>
               </div>
             </CardContent>
           </Card>
@@ -256,13 +306,17 @@ export function StaffDashboardView({ data }: Props) {
 
         <div className="grid gap-6 lg:grid-cols-2">
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Sessions by status</CardTitle>
-              <CardDescription>All training runs in the database (every account).</CardDescription>
+            <CardHeader className="space-y-1 pb-3">
+              <CardTitle className="text-brand-navy-900 text-base font-semibold tracking-tight">
+                Sessions by status
+              </CardTitle>
+              <CardDescription className="text-sm leading-relaxed">
+                All training runs in the database (every account).
+              </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-wrap gap-2">
               {Object.entries(sessions.byStatus).map(([status, n]) => (
-                <Badge key={status} variant="secondary">
+                <Badge key={status} variant={sessionStatusBadgeVariant(status as SessionStatus)}>
                   {SESSION_STATUS_LABEL[status as keyof typeof SESSION_STATUS_LABEL]}: {n}
                 </Badge>
               ))}
@@ -270,13 +324,17 @@ export function StaffDashboardView({ data }: Props) {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Analyses by status</CardTitle>
-              <CardDescription>Total analysis rows: {analyses.total} (all accounts).</CardDescription>
+            <CardHeader className="space-y-1 pb-3">
+              <CardTitle className="text-brand-navy-900 text-base font-semibold tracking-tight">
+                Analyses by status
+              </CardTitle>
+              <CardDescription className="text-sm leading-relaxed">
+                Total analysis rows: {analyses.total} (all accounts).
+              </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-wrap gap-2">
               {Object.entries(analyses.byStatus).map(([status, n]) => (
-                <Badge key={status} variant="outline">
+                <Badge key={status} variant={analysisStatusBadgeVariant(status as AnalysisStatus)}>
                   {DASHBOARD_ANALYSIS_STATUS_LABEL[status as keyof typeof DASHBOARD_ANALYSIS_STATUS_LABEL]}:{" "}
                   {n}
                 </Badge>
@@ -287,12 +345,14 @@ export function StaffDashboardView({ data }: Props) {
       </ScopeSection>
 
       {variant === "developer" ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Diagnostics</CardTitle>
-            <CardDescription>Derived from the same aggregates as above — no extra telemetry.</CardDescription>
+        <Card className="bg-muted/10 border-border/90">
+          <CardHeader className="space-y-1 pb-3">
+            <CardTitle className="text-brand-navy-900 text-base font-semibold tracking-tight">Diagnostics</CardTitle>
+            <CardDescription className="text-sm leading-relaxed">
+              Derived from the same aggregates as above — no extra telemetry.
+            </CardDescription>
           </CardHeader>
-          <CardContent className="text-muted-foreground space-y-1 text-sm">
+          <CardContent className="text-muted-foreground space-y-2 text-sm leading-relaxed">
             <p>
               Analysis completion rate (completed / total):{" "}
               {analyses.total > 0

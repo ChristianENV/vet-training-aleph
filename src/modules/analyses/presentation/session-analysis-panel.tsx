@@ -2,7 +2,6 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnalysisStatus } from "@/generated/prisma/enums";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -16,7 +15,7 @@ import {
   requestSessionEvaluation,
   type SessionEvaluationRunDto,
 } from "./analyses-api";
-import { ANALYSIS_STATUS_LABEL } from "./analysis-labels";
+import { AnalysisStatusBadge } from "@/components/shared/status-badges";
 import { EnrichedAnalysisSections, LegacyAnalysisSections } from "./analysis-results-sections";
 import {
   getAnalysisPayloadShape,
@@ -82,20 +81,24 @@ export function SessionAnalysisPanel({
   const showCompactSummary = analysis?.summary && !enriched;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Session analysis (AI)</CardTitle>
-        <CardDescription>
+    <Card className="border-border/90">
+      <CardHeader className="space-y-2 pb-3">
+        <CardTitle className="text-brand-navy-900 text-base font-semibold tracking-tight">
+          Session analysis (AI)
+        </CardTitle>
+        <CardDescription className="text-sm leading-relaxed">
           After you finish an oral assessment, we score your answers automatically. Transcript and support
           fields are used when needed. If something goes wrong, you can retry evaluation here. Requires an
           OpenAI API key on the server (see README).
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-5">
         {analysisQuery.isLoading ? (
-          <p className="text-muted-foreground text-sm">Loading analysis…</p>
+          <p className="text-muted-foreground bg-muted/30 border-border/70 rounded-lg border px-3 py-2.5 text-sm">
+            Loading analysis…
+          </p>
         ) : analysisQuery.isError ? (
-          <p className="text-destructive text-sm">
+          <p className="text-destructive border-destructive/25 bg-error-100/60 rounded-lg border px-3 py-2.5 text-sm leading-relaxed">
             {analysisQuery.error instanceof Error
               ? analysisQuery.error.message
               : "Could not load analysis"}
@@ -162,9 +165,11 @@ export function SessionAnalysisPanel({
           </p>
         ) : (
           <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-muted-foreground text-xs uppercase">Status</span>
-              <Badge variant="secondary">{ANALYSIS_STATUS_LABEL[analysis.status]}</Badge>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className="text-muted-foreground text-[0.6875rem] font-semibold tracking-wide uppercase">
+                Status
+              </span>
+              <AnalysisStatusBadge status={analysis.status} />
               {analysis.status === AnalysisStatus.RUNNING ? (
                 <span className="text-muted-foreground text-sm">Model is scoring this session…</span>
               ) : null}
@@ -174,10 +179,12 @@ export function SessionAnalysisPanel({
             </div>
 
             {analysis.status === AnalysisStatus.FAILED && analysis.errorMessage ? (
-              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
-                <p className="font-medium text-destructive">Evaluation didn’t finish</p>
-                <p className="text-destructive/90 mt-1">{analysis.errorMessage}</p>
-                <p className="text-muted-foreground mt-2 text-xs">Try running the evaluation again.</p>
+              <div className="border-destructive/25 bg-error-100/70 rounded-lg border p-4 text-sm shadow-sm">
+                <p className="font-semibold text-destructive">Evaluation didn’t finish</p>
+                <p className="text-destructive mt-1.5 leading-relaxed">{analysis.errorMessage}</p>
+                <p className="text-muted-foreground mt-3 text-xs leading-relaxed">
+                  Try running the evaluation again.
+                </p>
               </div>
             ) : null}
 

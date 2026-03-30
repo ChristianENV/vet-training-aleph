@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { Check } from "lucide-react";
 import type { OralRecorderResult } from "@/hooks/use-oral-recorder";
 import { SessionStatus } from "@/generated/prisma/enums";
+import { SessionStatusBadge } from "@/components/shared/status-badges";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,7 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import type { SessionProgressDto, SessionQuestionRow, SessionResponseRow, TrainingSessionRow } from "./sessions-api";
 import { OralRecorderPanel } from "./oral-recorder-panel";
-import { SESSION_STATUS_LABEL, SESSION_TYPE_LABEL } from "./session-labels";
+import { SESSION_TYPE_LABEL } from "./session-labels";
 import {
   findNextNavigableQuestionId,
   findPrevNavigableQuestionId,
@@ -120,10 +122,10 @@ export function OralAssessmentWizard({
     <div className="flex flex-col gap-0">
       <header
         className={cn(
-          "bg-background/95 supports-[backdrop-filter]:bg-background/80 sticky top-0 z-30 -mx-4 border-b px-4 pb-3 backdrop-blur-md sm:-mx-0 sm:px-0",
+          "bg-background/95 supports-[backdrop-filter]:bg-background/85 sticky top-0 z-30 -mx-4 border-b border-border/80 px-4 pb-4 shadow-[0_6px_24px_-12px_rgba(22,36,63,0.12)] backdrop-blur-md sm:-mx-0 sm:px-0",
         )}
       >
-        <div className="flex items-center justify-between gap-2 py-2">
+        <div className="flex items-center justify-between gap-2 py-2.5">
           <Link
             href="/sessions"
             className={cn(
@@ -157,58 +159,76 @@ export function OralAssessmentWizard({
             ) : null}
           </div>
         </div>
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <h2 className="text-lg font-semibold leading-tight tracking-tight sm:text-xl">
+        <div className="space-y-2.5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <h2 className="text-brand-navy-900 text-lg leading-snug font-semibold tracking-tight sm:text-xl">
               {s.title ?? topicLabel}
             </h2>
-            <Badge variant="secondary" className="shrink-0">
-              {SESSION_STATUS_LABEL[s.status]}
-            </Badge>
+            <SessionStatusBadge status={s.status} className="shrink-0" />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="bg-muted text-muted-foreground inline-flex max-w-full items-center rounded-full border px-2.5 py-0.5 text-xs font-medium">
+            <span className="bg-muted/80 text-muted-foreground inline-flex max-w-full items-center rounded-md border border-border/80 px-2.5 py-1 text-xs font-medium">
               {typeLabel}
             </span>
-            <span className="text-muted-foreground max-w-[min(100%,28rem)] truncate text-xs">
+            <span className="text-muted-foreground max-w-[min(100%,28rem)] truncate text-xs leading-relaxed">
               {topicLabel}
             </span>
           </div>
         </div>
 
         {totalQuestions > 0 ? (
-          <div className="mt-4 space-y-2">
-            <div className="bg-muted h-2 w-full overflow-hidden rounded-full">
-              <div
-                className="bg-primary h-full transition-all duration-300"
-                style={{ width: `${Math.min(100, progress.completionPercent)}%` }}
-              />
+          <div className="mt-5 space-y-3">
+            <div>
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span className="text-muted-foreground text-[0.6875rem] font-semibold tracking-wide uppercase">
+                  Session progress
+                </span>
+                <span className="text-muted-foreground tabular-nums text-xs font-medium">
+                  {progress.completionPercent}%
+                </span>
+              </div>
+              <div className="bg-muted border-border/60 h-2.5 w-full overflow-hidden rounded-full border">
+                <div
+                  className="bg-progress-fill h-full rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${Math.min(100, progress.completionPercent)}%` }}
+                />
+              </div>
             </div>
-            <div className="grid gap-1.5">
-              <div className="text-muted-foreground flex flex-wrap items-center justify-between gap-2 text-xs">
-                <span className="font-medium text-foreground">
+            <div className="grid gap-2">
+              <div className="text-muted-foreground flex flex-wrap items-baseline justify-between gap-2 text-xs">
+                <span className="text-foreground text-sm font-semibold tracking-tight">
                   Question {displayIndex > 0 ? displayIndex : "—"} of {totalQuestions}
                 </span>
-                <span className="tabular-nums">{progress.completionPercent}% complete</span>
               </div>
               {guidanceLabel ? (
-                <p className="text-muted-foreground text-xs">
+                <p className="text-muted-foreground text-xs leading-relaxed">
                   Suggested focus: {guidanceLabel} — not a hard deadline.
                 </p>
               ) : null}
               {currentQuestion && canMutate ? (
-                <p className="text-muted-foreground text-xs">
-                  {attemptsExhausted ? (
-                    <span className="text-foreground">All {maxAttempts} attempts used for this prompt.</span>
-                  ) : (
-                    <>
-                      Attempt {nextAttemptNum} of {maxAttempts}
-                      {isLastAttempt ? (
-                        <span className="text-foreground"> — last attempt for this prompt.</span>
-                      ) : null}
-                    </>
-                  )}
-                </p>
+                <div className="space-y-2">
+                  {isLastAttempt && !attemptsExhausted ? (
+                    <p
+                      className="text-foreground border-warning-500/30 bg-warning-100/90 rounded-md border px-2.5 py-2 text-xs leading-relaxed"
+                      role="status"
+                    >
+                      <span className="font-semibold">Last attempt for this prompt.</span> Listen back and save
+                      when you are satisfied — you will not be able to record again here.
+                    </p>
+                  ) : null}
+                  <p className="text-muted-foreground text-xs leading-relaxed">
+                    {attemptsExhausted ? (
+                      <span className="text-foreground font-medium">
+                        All {maxAttempts} attempts used for this prompt.
+                      </span>
+                    ) : (
+                      <>
+                        Attempt <span className="text-foreground font-medium">{nextAttemptNum}</span> of{" "}
+                        {maxAttempts}
+                      </>
+                    )}
+                  </p>
+                </div>
               ) : null}
             </div>
           </div>
@@ -216,7 +236,7 @@ export function OralAssessmentWizard({
       </header>
 
       {totalQuestions > 0 ? (
-        <div className="mt-4 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="mt-5 flex gap-2 overflow-x-auto pb-2 pt-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {questionsOrdered.map((q) => {
             const answered = responseHasContent(responseByQuestion.get(q.id));
             const locked = isQuestionLocked(q);
@@ -232,16 +252,25 @@ export function OralAssessmentWizard({
                 disabled={locked || !canMutate}
                 onClick={() => onSelectQuestion(q.id)}
                 className={cn(
-                  "flex h-8 min-w-8 shrink-0 items-center justify-center rounded-full border text-xs font-medium transition-colors",
-                  locked && "cursor-not-allowed opacity-40",
-                  active && "border-primary bg-primary text-primary-foreground",
-                  !active && !locked && "bg-muted/50 hover:bg-muted",
-                  isCurrent && !active && "ring-primary ring-offset-background ring-2 ring-offset-1",
+                  "flex size-10 shrink-0 items-center justify-center rounded-full border text-xs font-semibold transition-all sm:size-9 sm:text-xs",
+                  locked &&
+                    "border-muted-foreground/25 bg-muted/20 text-muted-foreground cursor-not-allowed border-dashed opacity-45",
+                  active && "border-primary bg-primary text-primary-foreground shadow-sm",
+                  !active &&
+                    !locked &&
+                    answered &&
+                    "border-success-500/35 bg-success-100/70 text-brand-navy-800 hover:bg-success-100",
+                  !active && !locked && !answered && "border-border/90 bg-muted/40 text-foreground hover:border-border hover:bg-muted",
+                  isCurrent && !active && "ring-brand-cyan-600 ring-offset-background ring-2 ring-offset-2",
                 )}
                 aria-current={active ? "step" : undefined}
                 aria-label={`Question ${q.ordinal}${locked ? " (locked)" : ""}${answered ? " answered" : ""}`}
               >
-                {q.ordinal}
+                {answered && !active && !locked ? (
+                  <Check className="size-4 shrink-0" strokeWidth={2.5} aria-hidden />
+                ) : (
+                  q.ordinal
+                )}
               </button>
             );
           })}
@@ -250,41 +279,48 @@ export function OralAssessmentWizard({
 
       {currentQuestion ? (
         <>
-          <Separator className="my-8" />
-          <section className="space-y-6" aria-labelledby="oral-prompt-heading">
-            <div className="space-y-3">
+          <Separator className="my-6 sm:my-8" />
+          <section className="space-y-6 sm:space-y-7" aria-labelledby="oral-prompt-heading">
+            <div className="space-y-3 sm:space-y-4">
               <div className="flex flex-wrap items-center gap-2">
                 {wizardMode === "focus" ? (
-                  <Badge variant="default" className="font-normal">
+                  <Badge variant="progress" className="font-semibold">
                     Current prompt
                   </Badge>
                 ) : wizardMode === "review" ? (
-                  <Badge variant="outline" className="font-normal">
+                  <Badge variant="outline" className="font-semibold">
                     Earlier prompt
                   </Badge>
                 ) : (
-                  <Badge variant="secondary" className="font-normal">
+                  <Badge variant="secondary" className="font-semibold">
                     Review
                   </Badge>
                 )}
               </div>
-              <h3 id="oral-prompt-heading" className="text-xl font-semibold leading-snug tracking-tight sm:text-2xl">
+              <h3
+                id="oral-prompt-heading"
+                className="text-brand-navy-900 text-xl leading-snug font-semibold tracking-tight sm:text-2xl sm:leading-snug"
+              >
                 {currentQuestion.promptText}
               </h3>
               {currentQuestion.helpText ? (
-                <p className="text-muted-foreground text-sm leading-relaxed">{currentQuestion.helpText}</p>
+                <p className="text-muted-foreground max-w-3xl text-sm leading-relaxed sm:text-[0.9375rem]">
+                  {currentQuestion.helpText}
+                </p>
               ) : null}
             </div>
 
-            <Card className="border-dashed">
-              <CardContent className="space-y-4 pt-6">
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">Your spoken answer</p>
-                  <p className="text-muted-foreground text-xs leading-relaxed">
-                    Record in one take. Your answer is kept on this device until you save it — uploads run later
-                    when the product is connected to storage.
-                  </p>
-                </div>
+            <Card className="border-brand-navy-600/12 overflow-hidden shadow-md">
+              <div className="bg-muted/35 border-b border-border/70 px-4 py-3.5 sm:px-5">
+                <p className="text-muted-foreground text-[0.6875rem] font-semibold tracking-wide uppercase">
+                  Your spoken answer
+                </p>
+                <p className="text-muted-foreground mt-1.5 max-w-2xl text-xs leading-relaxed">
+                  Record in one take. Your answer stays on this device until you save — uploads run when storage is
+                  connected.
+                </p>
+              </div>
+              <CardContent className="space-y-5 px-4 pt-5 pb-6 sm:px-5">
 
                 {effectiveQuestionId ? (
                   <OralRecorderPanel
@@ -299,9 +335,9 @@ export function OralAssessmentWizard({
                 ) : null}
 
                 {hasSavedContent && savedForCurrent ? (
-                  <div className="space-y-2 rounded-lg border bg-muted/20 p-3 text-sm">
-                    <p className="font-medium">Saved for this prompt</p>
-                    <p className="text-muted-foreground text-xs">
+                  <div className="bg-muted/25 border-border/80 space-y-1.5 rounded-lg border p-3.5 text-sm">
+                    <p className="text-foreground font-semibold">Saved for this prompt</p>
+                    <p className="text-muted-foreground text-xs leading-relaxed">
                       {savedForCurrent.answeredAt
                         ? new Date(savedForCurrent.answeredAt).toLocaleString()
                         : "—"}
@@ -312,14 +348,14 @@ export function OralAssessmentWizard({
                   </div>
                 ) : null}
 
-                <details className="group rounded-lg border bg-muted/10">
-                  <summary className="text-muted-foreground [&::-webkit-details-marker]:hidden cursor-pointer list-none px-3 py-2.5 text-sm font-medium">
+                <details className="group border-border/80 bg-muted/15 rounded-lg border">
+                  <summary className="text-foreground [&::-webkit-details-marker]:hidden cursor-pointer list-none px-3 py-3 text-sm font-medium transition-colors hover:bg-muted/25">
                     Support transcript
-                    <span className="text-muted-foreground/80 ml-1 text-xs font-normal">
+                    <span className="text-muted-foreground ml-1.5 text-xs font-normal">
                       — read only in v1
                     </span>
                   </summary>
-                  <div className="border-t px-3 py-3">
+                  <div className="border-border/60 border-t px-3 py-3">
                     <p className="text-muted-foreground text-sm leading-relaxed whitespace-pre-wrap">
                       {savedForCurrent?.transcriptText?.trim()
                         ? savedForCurrent.transcriptText
@@ -329,8 +365,12 @@ export function OralAssessmentWizard({
                 </details>
 
                 {hasUnsavedLocalTake && canMutate && !attemptsExhausted ? (
-                  <p className="text-muted-foreground text-xs" role="status">
-                    You have a recording that is not saved yet.
+                  <p
+                    className="text-foreground border-brand-cyan-600/25 bg-brand-cyan-500/[0.06] rounded-md border px-3 py-2 text-xs leading-relaxed"
+                    role="status"
+                  >
+                    <span className="font-medium">Unsaved recording.</span> Save your answer below when you are
+                    ready to keep this take.
                   </p>
                 ) : null}
               </CardContent>
@@ -338,14 +378,16 @@ export function OralAssessmentWizard({
           </section>
         </>
       ) : (
-        <p className="text-muted-foreground mt-6 text-sm">No question selected.</p>
+        <p className="text-muted-foreground border-border/70 bg-muted/20 mt-6 rounded-lg border border-dashed px-4 py-6 text-center text-sm">
+          No question selected.
+        </p>
       )}
 
       {canMutate && currentQuestion ? (
         <div
           className={cn(
-            "border-border bg-background/95 supports-[backdrop-filter]:bg-background/90 sticky bottom-0 z-20 mt-8 flex flex-col gap-3 border-t py-4 backdrop-blur-md",
-            "pb-[max(1rem,env(safe-area-inset-bottom))]",
+            "border-border/90 bg-background/95 supports-[backdrop-filter]:bg-background/92 sticky bottom-0 z-20 mt-8 flex flex-col gap-3.5 rounded-t-xl border-t py-4 shadow-[0_-10px_40px_-16px_rgba(22,36,63,0.14)] backdrop-blur-md",
+            "pb-[max(1rem,env(safe-area-inset-bottom))] pt-4",
           )}
         >
           <div className="flex flex-wrap gap-2">
@@ -379,10 +421,12 @@ export function OralAssessmentWizard({
             </Button>
           </div>
           {saveBlockedReason ? (
-            <p className="text-destructive text-center text-xs">{saveBlockedReason}</p>
+            <p className="text-destructive border-destructive/20 bg-error-100/70 rounded-lg border px-3 py-2 text-center text-xs leading-relaxed">
+              {saveBlockedReason}
+            </p>
           ) : null}
           {attemptsExhausted ? (
-            <p className="text-muted-foreground text-center text-xs">
+            <p className="text-muted-foreground text-center text-xs leading-relaxed">
               You can still replay your last saved take or move between prompts above.
             </p>
           ) : null}
@@ -390,9 +434,9 @@ export function OralAssessmentWizard({
       ) : null}
 
       {canMutate && showComplete ? (
-        <p className="text-muted-foreground mt-4 text-center text-sm">
-          All prompts have a saved answer. Use <strong>Finish assessment</strong> in the header when you are
-          ready.
+        <p className="text-muted-foreground border-border/60 bg-muted/25 mt-4 rounded-lg border px-4 py-3 text-center text-sm leading-relaxed">
+          All prompts have a saved answer. Use <strong className="text-foreground">Finish assessment</strong> in
+          the header when you are ready.
         </p>
       ) : null}
     </div>
