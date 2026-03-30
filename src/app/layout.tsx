@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Geist_Mono, Roboto } from "next/font/google";
 import { AppProviders } from "@/components/providers/app-providers";
+import { SITE_DESCRIPTION, SITE_NAME, SITE_TAGLINE } from "@/lib/site-metadata";
+import { getMetadataBase } from "@/lib/site-url";
 import "./globals.css";
 
 const robotoSans = Roboto({
@@ -13,14 +15,42 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const metadataBase = getMetadataBase();
+
 export const metadata: Metadata = {
-  title: "Vet English Training",
-  description: "Technical and professional English training for veterinarians (US workplace readiness).",
+  metadataBase,
+  applicationName: SITE_NAME,
+  title: {
+    default: `${SITE_NAME} — ${SITE_TAGLINE}`,
+    template: `%s | ${SITE_NAME}`,
+  },
+  description: SITE_DESCRIPTION,
   icons: {
     icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
     apple: [{ url: "/favicon.svg", type: "image/svg+xml" }],
   },
   manifest: "/site.webmanifest",
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    siteName: SITE_NAME,
+    title: `${SITE_NAME} — ${SITE_TAGLINE}`,
+    description: SITE_DESCRIPTION,
+    images: [
+      {
+        url: "/opengraph-image",
+        width: 1200,
+        height: 630,
+        alt: `${SITE_NAME} — ${SITE_TAGLINE}`,
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: `${SITE_NAME} — ${SITE_TAGLINE}`,
+    description: SITE_DESCRIPTION,
+    images: [`${metadataBase.origin}/opengraph-image`],
+  },
 };
 
 export const viewport: Viewport = {

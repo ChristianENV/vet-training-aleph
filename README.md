@@ -17,6 +17,7 @@ Copy **`.env.example`** to **`.env`** (and optionally **`.env.local`** for machi
 |----------|----------|---------|
 | `DATABASE_URL` | Yes | PostgreSQL connection string for Prisma |
 | `AUTH_SECRET` | Yes | NextAuth secret (`openssl rand -base64 32`) |
+| `NEXT_PUBLIC_APP_URL` | Optional | **Public HTTPS origin** (no trailing slash) used for Open Graph and other absolute metadata. **Set in production** so link previews (WhatsApp, Slack, etc.) use your real domain, not `localhost`. If unset on **Vercel**, `VERCEL_URL` is used. Locally defaults to `http://localhost:3000`. |
 | `AUTH_URL` | Optional | Canonical public URL for Auth.js. For local dev use `http://localhost:3000`. **In production, either omit it** (the app uses `trustHost` and same-origin redirects) **or set it to your real HTTPS origin** — never leave `localhost` in production or redirects can break. Middleware reads the JWT cookie name that matches HTTPS (`__Secure-authjs.session-token`); see `middleware.ts`. |
 | `DEV_USER_EMAIL` / `DEV_USER_PASSWORD` | Optional | Seed a **protected** `DEVELOPER` account (excluded from normal user listings). See [Seed](#seed) |
 | `OPENAI_API_KEY` | **For AI evaluation** | Required to run session analysis / evaluation after a session is **Completed** |
@@ -86,6 +87,12 @@ If the key is missing, the API returns **503** with a clear message; if invalid,
 ## Generated Prisma client
 
 Output: `src/generated/prisma` (gitignored). Regenerate after schema changes: `npm run db:generate` or `npm install`.
+
+## Link previews (Open Graph / WhatsApp)
+
+- **`NEXT_PUBLIC_APP_URL`** should be your real **HTTPS** origin in production (no trailing slash). That value drives `metadataBase` so `og:image` and related tags resolve to absolute URLs crawlers can fetch.
+- The default share image is a **1200×630** PNG generated at [`src/app/opengraph-image.tsx`](src/app/opengraph-image.tsx) (brand-aligned; no tiny favicon-only preview).
+- **Test locally:** view page source or open `http://localhost:3000/opengraph-image` in the browser. **Test production:** use [Facebook Sharing Debugger](https://developers.facebook.com/tools/debug/) (WhatsApp uses similar tags) or share the deployed URL in a private chat and refresh cache if needed.
 
 ## Architecture (short)
 
