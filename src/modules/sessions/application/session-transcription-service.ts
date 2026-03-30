@@ -6,6 +6,7 @@ import { downloadObjectFromR2 } from "@/lib/storage/r2-download";
 import { isR2Configured } from "@/lib/storage/r2-upload";
 import { transcribeAudioBuffer } from "@/modules/openai/application/transcribe-audio-buffer";
 import { getTranscriptionModelName } from "@/modules/openai/infrastructure/openai-client";
+import { resolveSessionResponseForQuestion } from "@/modules/sessions/domain/resolve-session-response-for-question";
 import {
   isTranscriptTextSufficient,
   responseRowReadyForEnrichedEvaluation,
@@ -50,13 +51,13 @@ export async function runFinalAudioTranscriptionPhase(
 
   const questions = [...(session.sessionQuestions ?? [])].sort((a, b) => a.ordinal - b.ordinal);
   const required = questions.filter((q) => q.isRequired);
-  const byQ = new Map((session.responses ?? []).map((r) => [r.sessionQuestionId, r]));
+  const responses = session.responses ?? [];
 
   const recoverableMsg =
     "We saved your responses, but couldn’t prepare them for scoring yet. You can try again — nothing needs to be re-recorded.";
 
   for (const q of required) {
-    const r = byQ.get(q.id);
+    const r = resolveSessionResponseForQuestion(q, responses);
     if (!r) {
       return { ok: false, message: recoverableMsg };
     }
@@ -221,9 +222,9 @@ export async function runFinalAudioTranscriptionPhase(
   if (!verify) {
     return { ok: false, message: recoverableMsg };
   }
-  const byFresh = new Map((verify.responses ?? []).map((x) => [x.sessionQuestionId, x]));
+  const verifyResponses = verify.responses ?? [];
   for (const q of required) {
-    const r = byFresh.get(q.id);
+    const r = resolveSessionResponseForQuestion(q, verifyResponses);
     if (!r || !responseRowReadyForEnrichedEvaluation(r)) {
       return { ok: false, message: recoverableMsg };
     }

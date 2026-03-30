@@ -17,6 +17,7 @@ export type EvaluationQaItem = {
 function buildEvidenceCapsule(items: EvaluationQaItem[], transcriptFallbackOrdinals: number[]): string {
   const lines: string[] = [
     "The model does not receive raw audio waveforms or server-stored audio files. Evaluation is based on text transcripts (and any support-field text merged into responses), plus optional per-answer duration in seconds.",
+    "In 'Question-and-answer responses' below, learner answers that show real speech text are full transcripts. Do not claim transcripts are missing when that text is present (only the bracketed placeholder lines mean transcript was unavailable).",
     "Duration alone is not sufficient for precise pacing, pause patterns, or pronunciation. Unless true audio-derived features are explicitly listed in this message (they are not by default), set audioAndDelivery.evidenceBasis to transcript_only or transcript_plus_timing_metadata.",
     "Set pronunciationScore and estimatedPaceWpm to null unless reliable audio-derived metrics are provided below. Never infer pronunciation or fine-grained pacing from wording alone.",
   ];

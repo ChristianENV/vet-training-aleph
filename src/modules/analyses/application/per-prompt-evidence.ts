@@ -1,5 +1,6 @@
 import type { ServerEnv } from "@/lib/config/env";
 import { resolveSessionAudioPlaybackUrl } from "@/lib/storage/session-audio-playback-url";
+import { resolveSessionResponseForQuestion } from "@/modules/sessions/domain/resolve-session-response-for-question";
 
 export type PerPromptEvidenceDto = {
   ordinal: number;
@@ -49,12 +50,11 @@ export function buildPerPromptEvidence(
   env: ServerEnv,
 ): PerPromptEvidenceDto[] {
   const fallbackOrdinals = readTranscriptFallbackOrdinals(input.finalizationMetaJson);
-  const byQuestionId = new Map(input.responses.map((r) => [r.sessionQuestionId, r]));
 
   const questions = [...input.sessionQuestions].sort((a, b) => a.ordinal - b.ordinal);
 
   return questions.map((q) => {
-    const r = byQuestionId.get(q.id);
+    const r = resolveSessionResponseForQuestion(q, input.responses);
     return {
       ordinal: q.ordinal,
       sessionQuestionId: q.id,

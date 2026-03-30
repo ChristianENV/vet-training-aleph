@@ -8,21 +8,17 @@ export function isTranscriptTextSufficient(text: string | null | undefined): boo
 }
 
 /**
- * Required answers are ready for enriched evaluation:
- * - Voice-backed rows: final audio exists and transcript was produced (or failed path blocked earlier).
- * - Text-only (no stored audio key): learner support text must be long enough.
+ * Required answers are ready for enriched evaluation when transcript text is long enough
+ * and transcription did not hard-fail. Voice-backed rows previously required
+ * `transcriptStatus === AVAILABLE` even when transcript text was already saved; that could
+ * reject or confuse the pipeline if status lagged behind the stored text.
  */
 export function responseRowReadyForEnrichedEvaluation(r: {
   finalAudioStorageKey: string | null | undefined;
   transcriptText: string | null | undefined;
   transcriptStatus: TranscriptStatus | string | null | undefined;
 }): boolean {
-  const hasAudio = !!r.finalAudioStorageKey?.trim();
-  if (hasAudio) {
-    return (
-      r.transcriptStatus === TranscriptStatus.AVAILABLE &&
-      isTranscriptTextSufficient(r.transcriptText)
-    );
-  }
+  if (r.transcriptStatus === TranscriptStatus.FAILED) return false;
+  if (String(r.transcriptStatus ?? "").toUpperCase() === "FAILED") return false;
   return isTranscriptTextSufficient(r.transcriptText);
 }

@@ -17,7 +17,11 @@ import { recordSessionEvaluationAiUsage } from "@/modules/analyses/infrastructur
 import { recordProgressAfterSuccessfulAnalysis } from "@/modules/analyses/application/progress-service";
 import { AnalysisServiceError } from "@/modules/analyses/application/analysis-errors";
 import { getSessionByIdOrThrow } from "@/modules/sessions/application/session-service";
-import { responseRowReadyForEnrichedEvaluation } from "@/modules/sessions/domain/transcript-readiness";
+import { resolveSessionResponseForQuestion } from "@/modules/sessions/domain/resolve-session-response-for-question";
+import {
+  isTranscriptTextSufficient,
+  responseRowReadyForEnrichedEvaluation,
+} from "@/modules/sessions/domain/transcript-readiness";
 import * as sessionRepo from "@/modules/sessions/infrastructure/session-repository";
 
 function assertOwnerForEvaluation(actor: AuthenticatedUser, session: { userId: string }): void {
@@ -107,9 +111,8 @@ export async function evaluateCompletedSession(
 
   const questions = session.sessionQuestions ?? [];
   const requiredQs = questions.filter((q) => q.isRequired);
-  const respByQ = new Map(responses.map((r) => [r.sessionQuestionId, r]));
   for (const q of requiredQs) {
-    const r = respByQ.get(q.id);
+    const r = resolveSessionResponseForQuestion(q, responses);
     if (!r || !responseRowReadyForEnrichedEvaluation(r)) {
       throw new AnalysisServiceError(
         422,
@@ -119,21 +122,40 @@ export async function evaluateCompletedSession(
     }
   }
 
-  const byQid = new Map(questions.map((q) => [q.id, q]));
-  const items = responses
-    .slice()
-    .sort((a, b) => a.ordinal - b.ordinal)
-    .map((r) => {
-      const q = byQid.get(r.sessionQuestionId);
+  const questionsSorted = [...questions].sort((a, b) => a.ordinal - b.ordinal);
+  const items = questionsSorted
+    .map((q) => {
+      const r = resolveSessionResponseForQuestion(q, responses);
+      if (!r) {
+        return null;
+      }
+      if (!q.isRequired) {
+        const hasContent =
+          !!r.finalAudioStorageKey?.trim() || isTranscriptTextSufficient(r.transcriptText);
+        if (!hasContent) {
+          return null;
+        }
+      }
       const storageKey = r.finalAudioStorageKey?.trim();
       return {
-        ordinal: r.ordinal,
-        promptText: q?.promptText ?? "(Missing question text)",
+        ordinal: q.ordinal,
+        promptText: q.promptText ?? "(Missing question text)",
         transcriptText: r.transcriptText,
         audioUrl: storageKey ? `[storage:${storageKey}]` : null,
         durationSec: r.finalAudioDurationSec ?? null,
       };
-    });
+    })
+    .filter((x): x is NonNullable<typeof x> => x != null);
+
+  if (process.env.NODE_ENV === "development") {
+    const withoutTx = items.filter((i) => !i.transcriptText?.trim());
+    if (withoutTx.length > 0) {
+      console.warn("[evaluate] evaluation items missing transcript text", {
+        sessionId,
+        ordinals: withoutTx.map((i) => i.ordinal),
+      });
+    }
+  }
 
   const record = await analysisRepo.createRunningAnalysis(sessionId);
   const modelName = env.OPENAI_EVAL_MODEL;

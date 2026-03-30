@@ -11,6 +11,7 @@ import {
   recordQuestionGenerationAiUsage,
   recordQuestionGenerationIncident,
 } from "@/modules/sessions/infrastructure/session-question-generation-logging";
+import { resolveSessionResponseForQuestion } from "@/modules/sessions/domain/resolve-session-response-for-question";
 import * as sessionRepo from "@/modules/sessions/infrastructure/session-repository";
 import * as templateRepo from "@/modules/sessions/infrastructure/session-template-repository";
 import type {
@@ -478,10 +479,9 @@ export async function completeSession(actor: AuthenticatedUser, sessionId: strin
   const questions = session.sessionQuestions ?? [];
   const required = questions.filter((q) => q.isRequired);
   const responses = session.responses ?? [];
-  const byQ = new Map(responses.map((r) => [r.sessionQuestionId, r]));
 
   for (const q of required) {
-    const r = byQ.get(q.id);
+    const r = resolveSessionResponseForQuestion(q, responses);
     if (!r) {
       throw new SessionsServiceError(
         400,

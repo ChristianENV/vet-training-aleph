@@ -3,6 +3,7 @@ import type { AuthenticatedUser } from "@/lib/auth/authenticated-user";
 import { getServerEnv } from "@/lib/config/env";
 import { prisma } from "@/lib/db/prisma";
 import { writeDevAudioCache } from "@/lib/storage/dev-audio-cache";
+import { resolveSessionResponseForQuestion } from "@/modules/sessions/domain/resolve-session-response-for-question";
 import { buildOralAssessmentObjectKey } from "@/lib/storage/oral-assessment-key";
 import { isR2Configured, uploadToR2WithRetry } from "@/lib/storage/r2-upload";
 import { evaluateCompletedSession } from "@/modules/analyses/application/session-analysis-service";
@@ -72,7 +73,6 @@ export async function finalizeSessionWithUploads(
   const questions = [...(session.sessionQuestions ?? [])].sort((a, b) => a.ordinal - b.ordinal);
   const required = questions.filter((q) => q.isRequired);
   const responses = session.responses ?? [];
-  const byQ = new Map(responses.map((r) => [r.sessionQuestionId, r]));
 
   const transcriptFallbackOrdinals: number[] = [];
   const freshUploads = new Map<string, { buffer: Buffer; contentType: string }>();
@@ -80,7 +80,7 @@ export async function finalizeSessionWithUploads(
 
   if (!r2On) {
     const anyVoice = required.some((q) => {
-      const row = byQ.get(q.id);
+      const row = resolveSessionResponseForQuestion(q, responses);
       return (
         !!row &&
         ((row.finalAudioDurationSec ?? 0) > 0 ||
@@ -104,7 +104,7 @@ export async function finalizeSessionWithUploads(
   };
 
   for (const q of required) {
-    const r = byQ.get(q.id);
+    const r = resolveSessionResponseForQuestion(q, responses);
     if (!r) {
       await rollbackToActive();
       throw new SessionsServiceError(
@@ -225,9 +225,9 @@ export async function finalizeSessionWithUploads(
     await rollbackToActive();
     throw new SessionsServiceError(500, "Session could not be reloaded", "VALIDATION_ERROR");
   }
-  const byFresh = new Map((fresh.responses ?? []).map((x) => [x.sessionQuestionId, x]));
+  const freshResponses = fresh.responses ?? [];
   for (const q of required) {
-    const r = byFresh.get(q.id);
+    const r = resolveSessionResponseForQuestion(q, freshResponses);
     if (!r || !responseRowSatisfied(r)) {
       await rollbackToActive();
       throw new SessionsServiceError(
