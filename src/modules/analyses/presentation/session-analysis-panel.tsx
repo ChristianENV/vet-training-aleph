@@ -203,9 +203,7 @@ export function SessionAnalysisPanel({
             ) : null}
 
             {analysis.status === AnalysisStatus.COMPLETED && enriched ? (
-              <div className="max-h-[min(70vh,720px)] overflow-y-auto pr-1">
-                <EnrichedAnalysisSections data={enriched} perPromptEvidence={analysis.perPromptEvidence} />
-              </div>
+              <EnrichedAnalysisSections data={enriched} perPromptEvidence={analysis.perPromptEvidence} />
             ) : null}
 
             {analysis.status === AnalysisStatus.COMPLETED && !enriched && legacy ? (
