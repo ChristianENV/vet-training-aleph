@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import {
+  ALEPH_VET_AUTH_LOGO_SRC,
   ALEPH_VET_SIDEBAR_LOGO_SRC,
   ALEPH_VET_STAFF_LOGO_SRC,
   ALEPH_VET_STAFF_WORDMARK,
@@ -23,12 +24,18 @@ type BrandMarkProps = {
 };
 
 /**
- * Logo from `public/alephvet-09.png` (header, drawer, auth); sidebar uses `public/alephvet-03.png`.
+ * `public/alephvet-03.png` (sidebar); `public/alephvet-09.png` (header, drawer);
+ * `public/alephvet_Mesa de trabajo 1.png` (auth / login).
  * Falls back to two-tone wordmark if the image fails to load.
  */
 export function BrandMark({ variant, className }: BrandMarkProps) {
   const [useFallback, setUseFallback] = useState(false);
-  const src = variant === "sidebar" ? ALEPH_VET_SIDEBAR_LOGO_SRC : ALEPH_VET_STAFF_LOGO_SRC;
+  const src =
+    variant === "sidebar"
+      ? ALEPH_VET_SIDEBAR_LOGO_SRC
+      : variant === "auth"
+        ? ALEPH_VET_AUTH_LOGO_SRC
+        : ALEPH_VET_STAFF_LOGO_SRC;
 
   if (useFallback) {
     return (
