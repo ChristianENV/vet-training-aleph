@@ -10,6 +10,7 @@ import { resolveSessionResponseForQuestion } from "@/modules/sessions/domain/res
 import {
   isTranscriptTextSufficient,
   responseRowReadyForEnrichedEvaluation,
+  MIN_TRANSCRIPT_CHARS_FOR_EVALUATION,
 } from "@/modules/sessions/domain/transcript-readiness";
 import * as sessionRepo from "@/modules/sessions/infrastructure/session-repository";
 import { recordSessionFinalizeIncident } from "@/modules/sessions/infrastructure/technical-incident-logging";
@@ -226,7 +227,28 @@ export async function runFinalAudioTranscriptionPhase(
   for (const q of required) {
     const r = resolveSessionResponseForQuestion(q, verifyResponses);
     if (!r || !responseRowReadyForEnrichedEvaluation(r)) {
+      const transcriptText = r?.transcriptText ?? null;
+      const transcriptLen = transcriptText?.trim().length ?? 0;
+      console.warn("[sessions:transcription] verify failed for required prompt", {
+        sessionId,
+        questionOrdinal: q.ordinal,
+        transcriptStatus: r?.transcriptStatus ?? null,
+        transcriptProvider: r?.transcriptProvider ?? null,
+        transcriptLen,
+          minChars: MIN_TRANSCRIPT_CHARS_FOR_EVALUATION,
+        hasAudio: !!r?.finalAudioStorageKey?.trim(),
+      });
       return { ok: false, message: recoverableMsg };
+    }
+    if (
+      r.transcriptStatus &&
+      String(r.transcriptStatus).toUpperCase() === "FAILED" &&
+      isTranscriptTextSufficient(r.transcriptText)
+    ) {
+      console.warn("[sessions:transcription] transcriptStatus=FAILED but sufficient text exists", {
+        sessionId,
+        questionOrdinal: q.ordinal,
+      });
     }
   }
 

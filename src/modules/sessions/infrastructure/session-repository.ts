@@ -37,6 +37,28 @@ export const sessionResponsePublicSelect = {
   answeredAt: true,
 } satisfies Prisma.SessionResponseSelect;
 
+export const sessionTurnPublicSelect = {
+  id: true,
+  sessionId: true,
+  speaker: true,
+  text: true,
+  clientTurnId: true,
+  sourceClientEventId: true,
+  sequence: true,
+  isFinal: true,
+  createdAt: true,
+} satisfies Prisma.SessionTurnSelect;
+
+export const sessionEventPublicSelect = {
+  id: true,
+  sessionId: true,
+  type: true,
+  clientEventId: true,
+  payloadJson: true,
+  sequence: true,
+  createdAt: true,
+} satisfies Prisma.SessionEventSelect;
+
 export const sessionListSelect = {
   id: true,
   userId: true,
@@ -331,6 +353,141 @@ export async function updateSessionStatus(input: {
       ...(input.completedAt !== undefined ? { completedAt: input.completedAt } : {}),
     },
     select: sessionListSelect,
+  });
+}
+
+export async function appendSessionTurn(input: {
+  sessionId: string;
+  speaker: "assistant" | "user" | "system";
+  text: string;
+  isFinal: boolean;
+  clientTurnId?: string;
+  sourceClientEventId?: string;
+}) {
+  if (input.clientTurnId?.trim()) {
+    const existing = await prisma.sessionTurn.findUnique({
+      where: {
+        sessionId_clientTurnId: {
+          sessionId: input.sessionId,
+          clientTurnId: input.clientTurnId.trim(),
+        },
+      },
+      select: sessionTurnPublicSelect,
+    });
+    if (existing) {
+      return { turn: existing, deduped: true as const };
+    }
+  }
+
+  if (input.isFinal) {
+    const latestFinal = await prisma.sessionTurn.findFirst({
+      where: { sessionId: input.sessionId, speaker: input.speaker, isFinal: true },
+      orderBy: { sequence: "desc" },
+      select: sessionTurnPublicSelect,
+    });
+    if (latestFinal && latestFinal.text.trim() === input.text.trim()) {
+      return { turn: latestFinal, deduped: true as const };
+    }
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const latest = await tx.sessionTurn.findFirst({
+      where: { sessionId: input.sessionId },
+      orderBy: { sequence: "desc" },
+      select: { sequence: true },
+    });
+    const sequence = (latest?.sequence ?? 0) + 1;
+    const created = await tx.sessionTurn.create({
+      data: {
+        sessionId: input.sessionId,
+        speaker: input.speaker,
+        text: input.text,
+        clientTurnId: input.clientTurnId?.trim() || null,
+        sourceClientEventId: input.sourceClientEventId?.trim() || null,
+        sequence,
+        isFinal: input.isFinal,
+      },
+      select: sessionTurnPublicSelect,
+    });
+    return { turn: created, deduped: false as const };
+  });
+}
+
+export async function listSessionTurns(sessionId: string, take = 50) {
+  return prisma.sessionTurn.findMany({
+    where: { sessionId },
+    orderBy: { sequence: "asc" },
+    take,
+    select: sessionTurnPublicSelect,
+  });
+}
+
+export async function appendSessionEvent(input: {
+  sessionId: string;
+  type: string;
+  clientEventId?: string;
+  payloadJson?: Prisma.InputJsonValue;
+}) {
+  if (input.clientEventId?.trim()) {
+    const existing = await prisma.sessionEvent.findUnique({
+      where: {
+        sessionId_clientEventId: {
+          sessionId: input.sessionId,
+          clientEventId: input.clientEventId.trim(),
+        },
+      },
+      select: sessionEventPublicSelect,
+    });
+    if (existing) {
+      return { event: existing, deduped: true as const };
+    }
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const latest = await tx.sessionEvent.findFirst({
+      where: { sessionId: input.sessionId },
+      orderBy: { sequence: "desc" },
+      select: { sequence: true },
+    });
+    const sequence = (latest?.sequence ?? 0) + 1;
+    const created = await tx.sessionEvent.create({
+      data: {
+        sessionId: input.sessionId,
+        type: input.type,
+        clientEventId: input.clientEventId?.trim() || null,
+        payloadJson: input.payloadJson,
+        sequence,
+      },
+      select: sessionEventPublicSelect,
+    });
+    return { event: created, deduped: false as const };
+  });
+}
+
+export async function findSessionTurnBySourceClientEventId(
+  sessionId: string,
+  sourceClientEventId: string,
+) {
+  return prisma.sessionTurn.findFirst({
+    where: { sessionId, sourceClientEventId },
+    select: sessionTurnPublicSelect,
+  });
+}
+
+export async function listSessionEvents(sessionId: string, take = 100) {
+  return prisma.sessionEvent.findMany({
+    where: { sessionId },
+    orderBy: { sequence: "asc" },
+    take,
+    select: sessionEventPublicSelect,
+  });
+}
+
+export async function findLatestSessionEventByType(sessionId: string, type: string) {
+  return prisma.sessionEvent.findFirst({
+    where: { sessionId, type },
+    orderBy: { sequence: "desc" },
+    select: sessionEventPublicSelect,
   });
 }
 

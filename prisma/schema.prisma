@@ -214,6 +214,9 @@ model TrainingSession {
 
   sessionQuestions  SessionQuestion[]
   responses         SessionResponse[]
+  turns             SessionTurn[]
+  events            SessionEvent[]
+  audioAssets       SessionAudioAsset[]
   analyses          SessionAnalysis[]
   progressSnapshots ProgressSnapshot[]
   aiUsageLogs       AiUsageLog[]
@@ -223,6 +226,55 @@ model TrainingSession {
   @@index([userId, createdAt])
   @@index([templateId])
   @@index([status, updatedAt])
+}
+
+model SessionTurn {
+  id        String          @id @default(cuid())
+  sessionId String
+  session   TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  speaker   String
+  text      String          @db.Text
+  clientTurnId String?
+  sourceClientEventId String?
+  sequence  Int
+  isFinal   Boolean         @default(true)
+  createdAt DateTime        @default(now())
+
+  @@unique([sessionId, sequence])
+  @@unique([sessionId, clientTurnId])
+  @@index([sessionId, createdAt])
+  @@index([sessionId, sourceClientEventId])
+}
+
+model SessionEvent {
+  id        String          @id @default(cuid())
+  sessionId String
+  session   TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  type      String
+  clientEventId String?
+  payloadJson Json?
+  sequence  Int
+  createdAt DateTime        @default(now())
+
+  @@unique([sessionId, sequence])
+  @@unique([sessionId, clientEventId])
+  @@index([sessionId, createdAt])
+  @@index([sessionId, type])
+}
+
+model SessionAudioAsset {
+  id          String          @id @default(cuid())
+  sessionId   String
+  session     TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  storageKey  String?         @db.Text
+  provider    String?
+  mimeType    String?
+  bytes       Int?
+  durationSec Int?
+  role        String?
+  createdAt   DateTime        @default(now())
+
+  @@index([sessionId, createdAt])
 }
 
 model SessionResponse {

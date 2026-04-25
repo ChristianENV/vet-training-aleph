@@ -1,7 +1,11 @@
 import { TranscriptStatus } from "@/generated/prisma/enums";
 
-/** Minimum transcript length for enriched evaluation and post-finalize checks. */
-export const MIN_TRANSCRIPT_CHARS_FOR_EVALUATION = 50;
+/**
+ * Minimum transcript length required to treat transcripts as usable evidence.
+ * This is intentionally low to avoid false "no transcripts" recoverable states when
+ * the model produced short-but-real speech text.
+ */
+export const MIN_TRANSCRIPT_CHARS_FOR_EVALUATION = 5;
 
 export function isTranscriptTextSufficient(text: string | null | undefined): boolean {
   return (text?.trim().length ?? 0) >= MIN_TRANSCRIPT_CHARS_FOR_EVALUATION;
@@ -18,7 +22,8 @@ export function responseRowReadyForEnrichedEvaluation(r: {
   transcriptText: string | null | undefined;
   transcriptStatus: TranscriptStatus | string | null | undefined;
 }): boolean {
-  if (r.transcriptStatus === TranscriptStatus.FAILED) return false;
-  if (String(r.transcriptStatus ?? "").toUpperCase() === "FAILED") return false;
+  // We treat "sufficient transcript text exists" as the source of truth for availability.
+  // `transcriptStatus` can lag behind (or be overwritten to FAILED during retries) while the
+  // stored `transcriptText` is still usable for evaluation.
   return isTranscriptTextSufficient(r.transcriptText);
 }

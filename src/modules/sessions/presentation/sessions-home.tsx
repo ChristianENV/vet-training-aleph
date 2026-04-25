@@ -58,7 +58,7 @@ export function SessionsHome({ actorRole }: Props) {
     onSettled: () => setCreatingTemplateId(null),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["training-sessions"] });
-      router.push(`/sessions/${data.session.id}`);
+      router.push(`/sessions/${data.session.id}/voice`);
     },
   });
 
@@ -198,12 +198,21 @@ export function SessionsHome({ actorRole }: Props) {
                   <TableCell className="text-muted-foreground text-sm">
                     {new Date(s.updatedAt).toLocaleString()}
                   </TableCell>
-                  <TableCell className="text-right">
-                    <Link href={`/sessions/${s.id}`}>
-                      <Button size="sm" variant="outline" type="button">
-                        Open
-                      </Button>
-                    </Link>
+                  <TableCell>
+                    <div className="flex justify-end gap-2">
+                      <Link href={`/sessions/${s.id}/voice`}>
+                        <Button size="sm" type="button">
+                          {s.status === "DRAFT" || s.status === "ACTIVE" || s.status === "ANALYZING"
+                            ? "Continue voice session"
+                            : "Open voice session"}
+                        </Button>
+                      </Link>
+                      <Link href={`/sessions/${s.id}`}>
+                        <Button size="sm" variant="outline" type="button">
+                          Open
+                        </Button>
+                      </Link>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

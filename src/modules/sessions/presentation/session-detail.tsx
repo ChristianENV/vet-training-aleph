@@ -41,6 +41,7 @@ import {
   responseHasContent,
   type LocalVoiceTake,
 } from "./session-wizard-helpers";
+import { BlockingProgressModal, type BlockingProgressModalStep } from "@/components/shared/blocking-progress-modal";
 
 function finalizeFinishErrorMessage(error: unknown): string {
   if (error instanceof ApiRequestError && error.status === 503 && error.code === "SERVICE_UNAVAILABLE") {
@@ -76,6 +77,7 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
   const localByQuestionRef = useRef(localByQuestion);
   localByQuestionRef.current = localByQuestion;
+  const lastSaveQuestionIdRef = useRef<string | null>(null);
 
   const sessionQuery = useQuery({
     queryKey: ["training-session", sessionId],
@@ -115,6 +117,11 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
     () => [...questions].sort((a, b) => a.ordinal - b.ordinal),
     [questions],
   );
+
+  const lastRequiredQuestionId = useMemo(() => {
+    const required = questionsOrdered.filter((q) => q.isRequired);
+    return required.length > 0 ? required[required.length - 1].id : null;
+  }, [questionsOrdered]);
 
   const responseByQuestion = useMemo(() => {
     return new Map((session?.responses ?? []).map((r) => [r.sessionQuestionId, r]));
@@ -212,6 +219,26 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
     void queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
   }, [queryClient, sessionId]);
 
+  const finalizeSteps: BlockingProgressModalStep[] = [
+    { id: "saving", label: "Saving your latest answer" },
+    { id: "uploading", label: "Uploading audio to the server" },
+    { id: "transcribing", label: "Preparing transcription" },
+    { id: "analyzing", label: "Analyzing your answers" },
+    { id: "results", label: "Generating results" },
+  ];
+  const [finalizeModalOpen, setFinalizeModalOpen] = useState(false);
+  const [finalizeModalStepIndex, setFinalizeModalStepIndex] = useState(0);
+
+  useEffect(() => {
+    if (!finalizeModalOpen) return;
+    const st = sessionQuery.data?.session?.status;
+    if (st === SessionStatus.SAVING_FINAL_RESPONSES) setFinalizeModalStepIndex(1);
+    else if (st === SessionStatus.TRANSCRIBING) setFinalizeModalStepIndex(2);
+    else if (st === SessionStatus.ANALYZING) setFinalizeModalStepIndex(3);
+    else if (st === SessionStatus.COMPLETED) setFinalizeModalStepIndex(4);
+    else setFinalizeModalStepIndex(0);
+  }, [finalizeModalOpen, sessionQuery.data?.session?.status]);
+
   const [actionBanner, setActionBanner] = useState<string | null>(null);
   const flashBanner = useCallback((msg: string) => {
     setActionBanner(msg);
@@ -255,19 +282,35 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
         finalAudioBytes: take.byteLength,
       });
     },
-    onSuccess: () => {
-      setSelectedQuestionId(null);
+    onSuccess: (data) => {
       invalidate();
+
+      const savedQuestionId = lastSaveQuestionIdRef.current;
+      const nowComplete = canCompleteSession(data.session);
+      const shouldAutoFinalize =
+        !!savedQuestionId && !!lastRequiredQuestionId && savedQuestionId === lastRequiredQuestionId && nowComplete;
+
+      if (shouldAutoFinalize) {
+        setFinalizeModalStepIndex(0);
+        setFinalizeModalOpen(true);
+        // Keep the current prompt selected so we don't “snap” back to question 1.
+        setSelectedQuestionId(savedQuestionId);
+        completeMut.mutate(data.session);
+        return;
+      }
+
+      setSelectedQuestionId(null);
       flashBanner("Answer saved.");
     },
   });
 
   const completeMut = useMutation({
-    mutationFn: () => {
-      if (!session) throw new Error("Session not loaded");
+    mutationFn: (sessionOverride?: TrainingSessionRow) => {
+      const sToUse = sessionOverride ?? session;
+      if (!sToUse) throw new Error("Session not loaded");
       const fd = new FormData();
-      const required = (session.sessionQuestions ?? []).filter((q) => q.isRequired);
-      const byResp = new Map((session.responses ?? []).map((r) => [r.sessionQuestionId, r]));
+      const required = (sToUse.sessionQuestions ?? []).filter((q) => q.isRequired);
+      const byResp = new Map((sToUse.responses ?? []).map((r) => [r.sessionQuestionId, r]));
       for (const q of required) {
         const r = byResp.get(q.id);
         const take = localByQuestion.get(q.id);
@@ -285,6 +328,8 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
       void queryClient.invalidateQueries({ queryKey: ["session-analysis", sessionId] });
       void queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
       void queryClient.invalidateQueries({ queryKey: ["progress-summary"] });
+
+      setFinalizeModalOpen(false);
       if (data.transcriptionFailed) {
         flashBanner(
           data.transcriptionFailureMessage?.trim() ||
@@ -294,10 +339,14 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
       }
       const analysisId = data.evaluation?.analysis?.id;
       if (analysisId) {
+        setFinalizeModalStepIndex(4);
         router.push(`/analyses/${analysisId}`);
       } else {
         flashBanner("Your assessment is saved. Check this page for results or the analyses list.");
       }
+    },
+    onError: () => {
+      setFinalizeModalOpen(false);
     },
   });
 
@@ -423,6 +472,14 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
             : "Saving your responses, then preparing transcripts and your results. This may take a minute—please keep this page open."}
         </p>
       ) : null}
+
+      <BlockingProgressModal
+        open={finalizeModalOpen}
+        steps={finalizeSteps}
+        currentStepIndex={finalizeModalStepIndex}
+        title="Preparing your results"
+        description="We’re finishing up your assessment and getting ready to show your feedback."
+      />
 
       {s.status === SessionStatus.SAVING_FINAL_RESPONSES ||
       s.status === SessionStatus.TRANSCRIBING ||
@@ -611,14 +668,17 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
           localTake={localTakeForEffective}
           onVoiceTakeReady={handleVoiceTakeReady}
           onDiscardVoiceTake={discardVoiceTakeForEffective}
-          canMutate={canMutate}
-          onSaveAnswer={() => responseMut.mutate()}
+          canMutate={canMutate && !finalizeModalOpen}
+          onSaveAnswer={() => {
+            lastSaveQuestionIdRef.current = currentQuestion?.id ?? null;
+            responseMut.mutate();
+          }}
           responseMutPending={responseMut.isPending}
           canSubmitAnswer={canSubmitAnswer}
           saveBlockedReason={saveBlockedReason}
           hasUnsavedLocalTake={hasUnsavedLocalTake}
           showComplete={showComplete}
-          onComplete={() => completeMut.mutate()}
+          onComplete={() => completeMut.mutate(undefined)}
           completeMutPending={completeMut.isPending}
           onCancel={() => cancelMut.mutate()}
           cancelMutPending={cancelMut.isPending}
@@ -639,7 +699,7 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
               type="button"
               variant="default"
               disabled={completeMut.isPending || !showComplete}
-              onClick={() => completeMut.mutate()}
+              onClick={() => completeMut.mutate(undefined)}
             >
               {completeMut.isPending ? "Saving…" : "Finish assessment"}
             </Button>
@@ -663,7 +723,15 @@ export function SessionDetail({ sessionId, questionGenerationBounds }: Props) {
         isOwner={isOwner}
       />
 
-      <div>
+      <div className="flex flex-wrap items-center gap-3">
+        {isOwner ? (
+          <Link
+            href={`/sessions/${sessionId}/voice`}
+            className="text-muted-foreground hover:text-foreground text-sm underline-offset-4 hover:underline"
+          >
+            Open voice session (Phase 1)
+          </Link>
+        ) : null}
         <Link
           href="/sessions"
           className="text-muted-foreground hover:text-foreground text-sm underline-offset-4 hover:underline"
